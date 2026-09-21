@@ -1,0 +1,344 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.85rem;
+
+  /* Cream / warm off-white palette — easy on the eyes */
+  --background: oklch(0.975 0.018 88);
+  --foreground: oklch(0.245 0.045 45);
+  --card: oklch(0.995 0.006 90);
+  --card-foreground: oklch(0.245 0.045 45);
+  --popover: oklch(0.995 0.006 90);
+  --popover-foreground: oklch(0.245 0.045 45);
+  --primary: oklch(0.395 0.115 25);
+  --primary-foreground: oklch(0.99 0.008 90);
+  --secondary: oklch(0.945 0.028 85);
+  --secondary-foreground: oklch(0.295 0.06 45);
+  --muted: oklch(0.945 0.024 85);
+  --muted-foreground: oklch(0.52 0.04 55);
+  --accent: oklch(0.925 0.045 75);
+  --accent-foreground: oklch(0.395 0.115 25);
+  --destructive: oklch(0.6 0.19 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.55 0.135 148);
+  --success-bg: oklch(0.94 0.05 148);
+  --border: oklch(0.895 0.032 78);
+  --input: oklch(0.895 0.032 78);
+  --ring: oklch(0.395 0.115 25);
+  --chart-1: oklch(0.395 0.115 25);
+  --chart-2: oklch(0.55 0.135 148);
+  --chart-3: oklch(0.68 0.17 60);
+  --chart-4: oklch(0.55 0.12 220);
+  --chart-5: oklch(0.65 0.18 300);
+  --sidebar: oklch(0.995 0.006 90);
+  --sidebar-foreground: oklch(0.245 0.045 45);
+  --sidebar-primary: oklch(0.395 0.115 25);
+  --sidebar-primary-foreground: oklch(0.99 0.008 90);
+  --sidebar-accent: oklch(0.925 0.045 75);
+  --sidebar-accent-foreground: oklch(0.395 0.115 25);
+  --sidebar-border: oklch(0.895 0.032 78);
+  --sidebar-ring: oklch(0.395 0.115 25);
+}
+
+.dark {
+  --background: oklch(0.19 0.02 50);
+  --foreground: oklch(0.96 0.015 85);
+  --card: oklch(0.235 0.025 50);
+  --card-foreground: oklch(0.96 0.015 85);
+  --popover: oklch(0.235 0.025 50);
+  --popover-foreground: oklch(0.96 0.015 85);
+  --primary: oklch(0.72 0.13 30);
+  --primary-foreground: oklch(0.19 0.02 50);
+  --secondary: oklch(0.29 0.03 50);
+  --secondary-foreground: oklch(0.96 0.015 85);
+  --muted: oklch(0.29 0.03 50);
+  --muted-foreground: oklch(0.72 0.03 60);
+  --accent: oklch(0.33 0.05 40);
+  --accent-foreground: oklch(0.96 0.015 85);
+  --destructive: oklch(0.62 0.19 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --success: oklch(0.7 0.15 148);
+  --success-bg: oklch(0.3 0.05 148);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.72 0.13 30);
+  --sidebar: oklch(0.235 0.025 50);
+  --sidebar-foreground: oklch(0.96 0.015 85);
+  --sidebar-primary: oklch(0.72 0.13 30);
+  --sidebar-primary-foreground: oklch(0.19 0.02 50);
+  --sidebar-accent: oklch(0.29 0.03 50);
+  --sidebar-accent-foreground: oklch(0.96 0.015 85);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.72 0.13 30);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  /* Global interactive feedback — every button/link/tab feels pressable */
+  button,
+  a,
+  [role="button"],
+  [role="tab"],
+  summary {
+    transition:
+      transform 120ms ease,
+      box-shadow 160ms ease,
+      background-color 160ms ease,
+      color 160ms ease,
+      filter 160ms ease;
+  }
+
+  button:not(:disabled):active,
+  a:active,
+  [role="button"]:not([aria-disabled="true"]):active,
+  [role="tab"]:active,
+  summary:active {
+    transform: scale(0.97);
+    filter: brightness(0.96);
+  }
+
+  button:not(:disabled):focus-visible,
+  a:focus-visible,
+  [role="button"]:focus-visible,
+  [role="tab"]:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-ring) 35%, transparent);
+    border-radius: var(--radius-md);
+  }
+}
+
+@utility chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+@utility tile-pop {
+  transition:
+    transform 160ms ease,
+    box-shadow 200ms ease,
+    border-color 160ms ease;
+}
+
+@utility tile-pop-hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px -12px color-mix(in oklab, var(--color-primary) 30%, transparent);
+}
+
+/* Landing page colors only */
+:root {
+  --landing-bg: #fbf4e9;
+  --landing-bg-light: #fffaf3;
+  --landing-red: #8b1e1e;
+  --landing-red-dark: #741818;
+  --landing-brown: #2b140f;
+  --landing-muted: #6f584b;
+  --landing-border: #ead8c4;
+  --landing-accent: #f3dfca;
+  --landing-icon-bg: #f5e2ce;
+  --landing-icon: #9a2a24;
+}
+
+/* Login page colors only */
+:root {
+  --login-bg: #fbf4e9;
+  --login-red: #8b1e1e;
+  --login-red-dark: #741818;
+  --login-brown: #2b140f;
+  --login-muted: #6f584b;
+  --login-border: #ead8c4;
+  --login-gold: #d9b078;
+  --login-dot: #e2b78a;
+  --login-icon-bg: #f7eadb;
+  --login-soft-circle: rgba(243, 223, 202, 0.45);
+}
+
+/* ==========================================================
+   ADMIN UI COLOR TOKENS
+   Change Admin colors here without editing admin.tsx.
+   ========================================================== */
+:root {
+  /* Core */
+  --admin-primary: #941c2f;
+  --admin-primary-hover: #7f1728;
+  --admin-primary-strong: #a21f35;
+  --admin-page-bg: #fbf7f1;
+  --admin-surface: #fffdf9;
+  --admin-surface-soft: #fffcf8;
+  --admin-border: #eadfd4;
+  --admin-divider: #eee4db;
+  --admin-text-heading: #33241f;
+  --admin-text-title: #3a2923;
+  --admin-text-value: #2f211d;
+  --admin-text-muted: #8a756b;
+  --admin-text-action: #765f54;
+
+  /* Status and chart colors */
+  --admin-attendance-present: #69bd86;
+  --admin-attendance-absent: #ed8191;
+  --admin-attendance-late: #e5b85f;
+  --admin-attendance-excused: #9b83d4;
+  --admin-tone-orange-bg: #fff0e2;
+  --admin-color-da741d: #da741d;
+  --admin-color-c76b1e: #c76b1e;
+  --admin-tone-green-bg: #e8f7ec;
+  --admin-tone-green-text: #2c9a58;
+  --admin-tone-blue-bg: #e7f1ff;
+  --admin-tone-blue-text: #397ed1;
+  --admin-tone-pink-bg: #ffe8ee;
+  --admin-tone-pink-text: #d94873;
+  --admin-tone-violet-bg: #f1eaff;
+  --admin-tone-violet-text: #7950bd;
+  --admin-color-e7f7eb: #e7f7eb;
+  --admin-color-27844a: #27844a;
+  --admin-color-f0e9ff: #f0e9ff;
+  --admin-color-7045b2: #7045b2;
+  --admin-color-ad651f: #ad651f;
+
+  /* Remaining exact UI colors */
+  --admin-color-2d211d: #2d211d;
+  --admin-text-number: #34251f;
+  --admin-color-362722: #362722;
+  --admin-color-3b2b25: #3b2b25;
+  --admin-color-3c2c26: #3c2c26;
+  --admin-color-4a3a33: #4a3a33;
+  --admin-color-4e3c35: #4e3c35;
+  --admin-color-4f403a: #4f403a;
+  --admin-color-55433c: #55433c;
+  --admin-text-icon: #5f4a42;
+  --admin-color-5f4b43: #5f4b43;
+  --admin-form-label: #604d45;
+  --admin-color-66534b: #66534b;
+  --admin-color-67534a: #67534a;
+  --admin-color-68564e: #68564e;
+  --admin-color-6d5a52: #6d5a52;
+  --admin-color-6f5c53: #6f5c53;
+  --admin-color-735e55: #735e55;
+  --admin-color-75635b: #75635b;
+  --admin-color-75645d: #75645d;
+  --admin-color-7e6a61: #7e6a61;
+  --admin-color-806b62: #806b62;
+  --admin-color-8a7770: #8a7770;
+  --admin-color-8b776e: #8b776e;
+  --admin-text-caption: #8c776e;
+  --admin-text-empty: #97847b;
+  --admin-text-subtle: #99877e;
+  --admin-color-9a867d: #9a867d;
+  --admin-text-helper: #9a877e;
+  --admin-color-9b877e: #9b877e;
+  --admin-color-9b887f: #9b887f;
+  --admin-color-ad9a91: #ad9a91;
+  --admin-preview-border: #cfc4bb;
+  --admin-color-d7ccc3: #d7ccc3;
+  --admin-color-ddd0c5: #ddd0c5;
+  --admin-color-ded2c7: #ded2c7;
+  --admin-preview-grid: #ded5cd;
+  --admin-input-border: #dfd2c7;
+  --admin-pagination-border: #e2d6cc;
+  --admin-color-e3d7cc: #e3d7cc;
+  --admin-dialog-border: #e6d9ce;
+  --admin-color-e9ded5: #e9ded5;
+  --admin-color-e9e1da: #e9e1da;
+  --admin-color-ece9e6: #ece9e6;
+  --admin-color-eee4dc: #eee4dc;
+  --admin-color-f0e6de: #f0e6de;
+  --admin-color-f0e7df: #f0e7df;
+  --admin-row-divider: #f1e9e2;
+  --admin-color-f2ece7: #f2ece7;
+  --admin-color-f5e7d7: #f5e7d7;
+  --admin-color-f6e9dd: #f6e9dd;
+  --admin-color-f7e6e8: #f7e6e8;
+  --admin-nav-hover: #f7eee7;
+  --admin-color-f9e8e9: #f9e8e9;
+  --admin-color-faf1e9: #faf1e9;
+  --admin-color-faf3ed: #faf3ed;
+  --admin-color-fff3f4: #fff3f4;
+  --admin-color-fff8f4: #fff8f4;
+  
+  /* Named Tailwind colors moved out of TSX */
+  --admin-white: #ffffff;
+  --admin-danger-bg: #fef2f2;
+  --admin-danger-border: #fecaca;
+  --admin-danger-500: #ef4444;
+  --admin-danger-700: #b91c1c;
+  --admin-overlay: rgba(0, 0, 0, 0.35);
+  --admin-surface-95: rgba(255, 253, 249, 0.95);
+  --admin-primary-ring-20: rgba(148, 28, 47, 0.20);
+  --admin-primary-ring-25: rgba(148, 28, 47, 0.25);
+  --admin-shadow-active: 0 8px 18px -10px rgba(148, 28, 47, 0.90);
+  --admin-shadow-panel: 0 8px 30px -26px rgba(70, 35, 20, 0.55);
+}
