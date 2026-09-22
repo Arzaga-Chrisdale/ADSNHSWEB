@@ -19,6 +19,18 @@ export const Route = createFileRoute("/_authenticated/students")({
   component: StudentsPage,
 });
 
+const SCHOOL_FORMS_ACTIVE_CLASS_KEY = "school-forms-active-class-id";
+
+function readSchoolFormsClassId() {
+  if (typeof window === "undefined") return "";
+  return window.sessionStorage.getItem(SCHOOL_FORMS_ACTIVE_CLASS_KEY) ?? "";
+}
+
+function rememberSchoolFormsClassId(classId: string) {
+  if (typeof window === "undefined" || !classId) return;
+  window.sessionStorage.setItem(SCHOOL_FORMS_ACTIVE_CLASS_KEY, classId);
+}
+
 type SF1StudentRow = StudentRow & {
   mother_tongue?: string | null;
   ip_ethnic_group?: string | null;
@@ -84,6 +96,11 @@ function ageOnFirstFridayOfJune(
   return String(Math.max(0, age));
 }
 
+function gradeLevelNumber(value?: string | null) {
+  const match = String(value ?? "").match(/\d+/);
+  return match ? Number(match[0]) : null;
+}
+
 function StudentsPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -136,9 +153,67 @@ function StudentsPage() {
       ).data as ClassRow[],
   });
 
-  const [classId, setClassId] = useState("");
-  const activeClassId = classId || classes[0]?.id || "";
+  const [classId, setClassId] = useState(readSchoolFormsClassId);
+  const rememberedClass = classes.find((c) => c.id === classId);
+  const activeClassId = rememberedClass?.id || classes[0]?.id || "";
   const [editMode, setEditMode] = useState(false);
+
+  useEffect(() => {
+    if (classesLoading || classes.length === 0) return;
+
+    // Keep My Students on the exact class selected from School Forms.
+    // If the remembered class is no longer available, fall back safely to
+    // the first available class and remember that selection.
+    if (!rememberedClass && classes[0]?.id) {
+      setClassId(classes[0].id);
+      rememberSchoolFormsClassId(classes[0].id);
+      return;
+    }
+
+    if (activeClassId) {
+      rememberSchoolFormsClassId(activeClassId);
+    }
+  }, [activeClassId, classes, classesLoading, rememberedClass]);
+
+  const selectClass = (nextClassId: string) => {
+    setClassId(nextClassId);
+    rememberSchoolFormsClassId(nextClassId);
+  };
+
+  const groupedClasses = useMemo(() => {
+    const sortClasses = (items: ClassRow[]) =>
+      [...items].sort((left, right) => {
+        const leftGrade = gradeLevelNumber(left.grade_level) ?? 999;
+        const rightGrade = gradeLevelNumber(right.grade_level) ?? 999;
+
+        if (leftGrade !== rightGrade) return leftGrade - rightGrade;
+
+        return String(left.section ?? "").localeCompare(
+          String(right.section ?? ""),
+        );
+      });
+
+    return {
+      juniorHigh: sortClasses(
+        classes.filter((item) => {
+          const grade = gradeLevelNumber(item.grade_level);
+          return grade != null && grade >= 7 && grade <= 10;
+        }),
+      ),
+      seniorHigh: sortClasses(
+        classes.filter((item) => {
+          const grade = gradeLevelNumber(item.grade_level);
+          return grade != null && grade >= 11 && grade <= 12;
+        }),
+      ),
+      other: sortClasses(
+        classes.filter((item) => {
+          const grade = gradeLevelNumber(item.grade_level);
+          return grade == null || grade < 7 || grade > 12;
+        }),
+      ),
+    };
+  }, [classes]);
 
   const { data: students = [], isLoading: studentsLoading } = useQuery({
     queryKey: ["students", activeClassId],
@@ -218,7 +293,10 @@ function StudentsPage() {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => void navigate({ to: "/school-forms" })}
+              onClick={() => {
+                if (activeClassId) rememberSchoolFormsClassId(activeClassId);
+                void navigate({ to: "/school-forms" });
+              }}
               className="h-9 shrink-0 gap-1.5 rounded-xl px-3"
             >
               <ArrowLeft className="size-4" />
@@ -250,16 +328,55 @@ function StudentsPage() {
               {editMode ? "Editing" : "Edit"}
             </Button>
 
-            <Select value={activeClassId} onValueChange={setClassId}>
-              <SelectTrigger className="w-[240px] bg-background">
+            <Select value={activeClassId} onValueChange={selectClass}>
+              <SelectTrigger className="h-9 w-64 bg-background">
                 <SelectValue placeholder="Select class" />
               </SelectTrigger>
               <SelectContent>
-                {classes.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.subject} {c.section ? `( ${c.section} )` : ""}
-                  </SelectItem>
-                ))}
+                {groupedClasses.juniorHigh.length > 0 && (
+                  <>
+                    <div className="px-2 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Junior High School · Grades 7–10
+                    </div>
+
+                    {groupedClasses.juniorHigh.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.grade_level || "No grade"} ·{" "}
+                        {c.section || "No section"}
+                      </SelectItem>
+                    ))}
+                  </>
+                )}
+
+                {groupedClasses.seniorHigh.length > 0 && (
+                  <>
+                    <div className="mt-1 border-t px-2 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Senior High School · Grades 11–12
+                    </div>
+
+                    {groupedClasses.seniorHigh.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.grade_level || "No grade"} ·{" "}
+                        {c.section || "No section"}
+                      </SelectItem>
+                    ))}
+                  </>
+                )}
+
+                {groupedClasses.other.length > 0 && (
+                  <>
+                    <div className="mt-1 border-t px-2 pb-1 pt-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Other Classes
+                    </div>
+
+                    {groupedClasses.other.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.grade_level || "No grade"} ·{" "}
+                        {c.section || "No section"}
+                      </SelectItem>
+                    ))}
+                  </>
+                )}
               </SelectContent>
             </Select>
           </div>

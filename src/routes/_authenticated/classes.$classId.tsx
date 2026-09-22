@@ -5590,7 +5590,7 @@ function TermGradesTable({
             {row.ps ?? "—"}
           </td>
           <td className="bg-muted/20 px-2 text-center text-xs font-semibold text-blue-700">
-            {row.ws ?? "—"}
+            {row.ws == null ? "—" : row.ws.toFixed(2)}
           </td>
         </Fragment>
       );
@@ -5647,7 +5647,11 @@ function TermGradesTable({
           {row.ps ?? "—"}
         </td>
         <td className="bg-muted/20 px-2 text-center text-xs font-semibold text-blue-700">
-          {row.ws ?? "—"}
+          {row.ws == null
+            ? "—"
+            : comp === "QA"
+              ? row.ws.toFixed(2)
+              : row.ws}
         </td>
       </Fragment>
     );

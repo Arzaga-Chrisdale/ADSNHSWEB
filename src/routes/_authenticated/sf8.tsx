@@ -2,16 +2,9 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMemo, useState } from "react";
-import { ArrowLeft, HeartPulse } from "lucide-react";
+import { ArrowLeft, HeartPulse, GraduationCap, Users } from "lucide-react";
 import ExcelJS, { type PaperSize } from "exceljs";
 import { toast } from "sonner";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type { ClassRow, StudentRow } from "@/lib/data";
 import { PdfPreviewShell } from "@/components/PdfPreviewShell";
 import { DEPED_BLUE, DEPED_YELLOW } from "@/components/DepEdHeader";
@@ -629,7 +622,7 @@ async function downloadSF8TemplateExcel(options: SF8ExcelOptions) {
 }
 
 function SF8Page() {
-  const [classId, setClassId] = useState<string>(readSchoolFormsClassId);
+  const [classId] = useState<string>(readSchoolFormsClassId);
   const [length, setLength] = useState<"short" | "full">("full");
 
   const { data: profile } = useQuery({
@@ -650,8 +643,7 @@ function SF8Page() {
   });
 
   const selectedSchoolFormsClass = classes.find((item) => item.id === classId);
-  const scopedClasses = selectedSchoolFormsClass ? [selectedSchoolFormsClass] : classes;
-  const active = selectedSchoolFormsClass?.id || scopedClasses[0]?.id;
+  const active = selectedSchoolFormsClass?.id || classes[0]?.id;
   const klass = classes.find((classRow) => classRow.id === active);
 
   const { data: students = [] } = useQuery({
@@ -886,36 +878,46 @@ function SF8Page() {
       </div>
 
       <div
-        className="rounded-2xl border-2 p-4 shadow-sm"
+        className="relative overflow-hidden rounded-2xl border-2 px-5 py-3 shadow-sm sm:px-6 sm:py-0.5"
         style={{ backgroundColor: "#FFFBEB", borderColor: DEPED_YELLOW }}
       >
-        <div className="mb-2 text-sm font-semibold text-amber-900">
+        <div className="text-sm font-semibold text-amber-900">
           Form Configuration
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3">
-          <div>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-amber-900">
-              Class
-            </label>
-
-            <Select
-              value={active}
-              onValueChange={setClassId}
-              disabled={Boolean(selectedSchoolFormsClass)}
+        <div className="mx-auto mt-1 flex max-w-2xl flex-col items-center">
+          <div className="flex w-full items-center justify-center gap-3 sm:gap-5">
+            <div className="hidden h-px w-20 bg-amber-400 sm:block" />
+            <div
+              className="grid size-9 shrink-0 place-items-center rounded-full"
+              style={{ backgroundColor: "#FEF0B6" }}
             >
-              <SelectTrigger className="bg-white">
-                <SelectValue placeholder="Pick class" />
-              </SelectTrigger>
-              <SelectContent>
-                {scopedClasses.map((classRow) => (
-                  <SelectItem key={classRow.id} value={classRow.id}>
-                    {classRow.grade_level} · {classRow.subject} · {classRow.section || "—"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              <GraduationCap className="size-5 text-amber-950" />
+            </div>
+            <div className="hidden h-px w-20 bg-amber-400 sm:block" />
           </div>
+
+          <div className="mt-1 text-center text-xs font-bold uppercase tracking-[0.32em] text-amber-950">
+            Class
+          </div>
+
+          <div className="mt-1 flex w-full max-w-[300px] items-center gap-1.5 rounded-lg border border-amber-300 bg-white/75 px-2 py-2 shadow-sm">
+            <div className="grid size-5 shrink-0 place-items-center rounded-md bg-amber-50 text-amber-700">
+              <Users className="size-3" />
+            </div>
+
+            <div className="min-w-0 flex-1 text-center">
+              <div className="truncate text-[11px] font-bold text-amber-950">
+                {klass
+                  ? `${klass.grade_level || "—"} · ${klass.subject || "—"} · ${klass.section || "—"}`
+                  : "No class selected"}
+              </div>
+            </div>
+          </div>
+
+          <p className="mt-0.5 text-center text-[9px] text-amber-900/60">
+            Selected class for this form
+          </p>
         </div>
       </div>
 

@@ -4199,6 +4199,8 @@ function AdminDashboardPage() {
   const [createStudentOpen, setCreateStudentOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<StudentRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [deleteProfileCandidate, setDeleteProfileCandidate] =
+    useState<ProfileRow | null>(null);
 
   const { data, isLoading, error } = useQuery<AdminData>({
     queryKey: ["admin-dashboard-data"],
@@ -4346,11 +4348,6 @@ function AdminDashboardPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Delete ${profile.full_name || profile.email || "this user"}? This also removes the user's classes and learner records.`,
-    );
-    if (!confirmed) return;
-
     setBusyId(profile.id);
     const { error: deleteError } = await supabase.rpc("admin_delete_user", {
       target_user_id: profile.id,
@@ -4362,6 +4359,7 @@ function AdminDashboardPage() {
       return;
     }
 
+    setDeleteProfileCandidate(null);
     await refreshData();
   };
 
@@ -4500,7 +4498,7 @@ function AdminDashboardPage() {
               busyId={busyId}
               onAdd={() => setCreateUserOpen(true)}
               onEdit={setEditingProfile}
-              onDelete={deleteProfile}
+              onDelete={setDeleteProfileCandidate}
             />
           )}
 
@@ -4583,6 +4581,83 @@ function AdminDashboardPage() {
         onClose={() => setCreateStudentOpen(false)}
         onSaved={refreshData}
       />
+
+      <Dialog
+        open={Boolean(deleteProfileCandidate)}
+        onOpenChange={(open) => {
+          if (!open && !busyId) setDeleteProfileCandidate(null);
+        }}
+      >
+        <DialogContent className="w-[calc(100%-2rem)] max-w-[520px] gap-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-2xl">
+          <div className="px-8 pb-7 pt-8">
+            <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-red-50">
+              <Trash2 className="size-7 text-red-600" />
+            </div>
+
+            <DialogHeader className="space-y-3 pr-8">
+              <DialogTitle className="text-[28px] font-bold leading-tight text-slate-900">
+                Delete Teacher / User?
+              </DialogTitle>
+              <DialogDescription className="text-[15px] leading-6 text-slate-700">
+                Are you sure you want to delete
+                {deleteProfileCandidate?.full_name ||
+                deleteProfileCandidate?.email
+                  ? ` ${
+                      deleteProfileCandidate?.full_name ||
+                      deleteProfileCandidate?.email
+                    }`
+                  : " this teacher/user"}
+                ? This action will permanently remove the account and may also
+                remove related classes and learner records.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="mt-5 flex gap-4 rounded-xl border border-red-100 bg-red-50 px-5 py-4">
+              <AlertTriangle className="mt-0.5 size-6 shrink-0 text-red-600" />
+              <div>
+                <p className="text-sm font-bold text-red-700">
+                  This action cannot be undone.
+                </p>
+                <p className="mt-1 text-sm leading-5 text-red-900/70">
+                  All associated data, including classes and learner records,
+                  will be permanently deleted.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="border-t border-slate-200 bg-white px-8 py-5 sm:space-x-3">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={Boolean(busyId)}
+              onClick={() => setDeleteProfileCandidate(null)}
+              className="h-11 rounded-lg px-5 text-sm font-semibold"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={!deleteProfileCandidate || Boolean(busyId)}
+              onClick={() => {
+                if (deleteProfileCandidate) {
+                  void deleteProfile(deleteProfileCandidate);
+                }
+              }}
+              className="h-11 gap-2 rounded-lg bg-[var(--admin-primary)] px-5 text-sm font-semibold text-white hover:bg-[var(--admin-primary-hover)]"
+            >
+              {busyId === deleteProfileCandidate?.id ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Trash2 className="size-4" />
+              )}
+              {busyId === deleteProfileCandidate?.id
+                ? "Deleting..."
+                : "Delete User"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

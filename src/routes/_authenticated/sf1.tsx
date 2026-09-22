@@ -2,14 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useMemo, useState } from "react";
-import { ArrowLeft, BookOpen } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ArrowLeft, BookOpen, GraduationCap, Users } from "lucide-react";
 import type { ClassRow, StudentRow } from "@/lib/data";
 import { PdfPreviewShell } from "@/components/PdfPreviewShell";
 import { DEPED_BLUE, DEPED_YELLOW } from "@/components/DepEdHeader";
@@ -63,6 +56,8 @@ type SF1ExcelOptions = {
   section: string;
   adviser: string;
   schoolHead: string;
+  startDate: string;
+  endDate: string;
   learners: SF1StudentRow[];
 };
 
@@ -171,6 +166,29 @@ function excelBirthdate(value?: string | null) {
   })
     .format(date)
     .replaceAll("/", "-");
+}
+
+function formatSF1SchoolDate(value?: string | null) {
+  if (!value) return "";
+
+  // Class dates are stored as YYYY-MM-DD. Read the date parts directly so
+  // the displayed SF1 date cannot shift by one day because of timezone
+  // conversion. SF1 shows dates in MM/DD/YYYY format.
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (iso) return `${iso[2]}/${iso[3]}/${iso[1]}`;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function sf1DateLine(label: "BoSY Date:" | "EoSY Date:", value: string) {
+  return value ? `${label} ${value}` : label;
 }
 
 function setTableRow(
@@ -537,7 +555,7 @@ function addLegendAndSignatures(
   mergeAndSet(
     worksheet,
     `AE${contentStartRow + 5}:AH${contentEndRow}`,
-    "BoSY Date:",
+    sf1DateLine("BoSY Date:", options.startDate),
     {
       font: { size: 7, bold: true },
       alignment: { horizontal: "left", vertical: "bottom" },
@@ -547,7 +565,7 @@ function addLegendAndSignatures(
   mergeAndSet(
     worksheet,
     `AI${contentStartRow + 5}:AK${contentEndRow}`,
-    "EoSY Date:",
+    sf1DateLine("EoSY Date:", options.endDate),
     {
       font: { size: 7, bold: true },
       alignment: { horizontal: "left", vertical: "bottom" },
@@ -589,7 +607,7 @@ function addLegendAndSignatures(
   mergeAndSet(
     worksheet,
     `AN${contentStartRow + 4}:AP${contentStartRow + 5}`,
-    "BoSY Date:",
+    sf1DateLine("BoSY Date:", options.startDate),
     {
       font: { size: 7, bold: true },
       alignment: { horizontal: "left", vertical: "bottom" },
@@ -599,7 +617,7 @@ function addLegendAndSignatures(
   mergeAndSet(
     worksheet,
     `AQ${contentStartRow + 4}:AS${contentStartRow + 5}`,
-    "EoSY Date:",
+    sf1DateLine("EoSY Date:", options.endDate),
     {
       font: { size: 7, bold: true },
       alignment: { horizontal: "left", vertical: "bottom" },
@@ -828,6 +846,45 @@ function replaceWordUnderline(container: Element, value: string) {
   );
 }
 
+function setWordSF1Dates(
+  container: Element,
+  startDate: string,
+  endDate: string,
+) {
+  const dateTable = Array.from(
+    container.getElementsByTagNameNS(WORD_NS, "tbl"),
+  ).find(
+    (table) =>
+      table.textContent?.includes("BoSY Date:") &&
+      table.textContent?.includes("EoSY Date:"),
+  );
+
+  if (!dateTable) {
+    throw new Error(
+      "The original SF1 Word template is missing its BoSY/EoSY date fields.",
+    );
+  }
+
+  resizeWordDateTable(dateTable, SF1_WORD_DATE_LINES_SCALE);
+
+  const dateRow = wordRows(dateTable)[0];
+  const dateCells = dateRow ? wordCells(dateRow) : [];
+  if (dateCells.length < 2) {
+    throw new Error(
+      "The original SF1 Word template has an invalid BoSY/EoSY date row.",
+    );
+  }
+
+  setWordCellText(
+    dateCells[0],
+    sf1DateLine("BoSY Date:", startDate),
+  );
+  setWordCellText(
+    dateCells[1],
+    sf1DateLine("EoSY Date:", endDate),
+  );
+}
+
 function wordRows(table: Element) {
   return directWordChildren(table, "tr");
 }
@@ -1032,6 +1089,25 @@ function buildSF1LegacyCellUpdates(options: SF1ExcelOptions) {
     legacyCellUpdate("X55", options.learners.length),
     legacyCellUpdate("AE50", options.adviser.toUpperCase()),
     legacyCellUpdate("AN50", options.schoolHead.toUpperCase()),
+    // Use the E-Class Record class dates in the original SF1 footer.
+    // Prepared by: BoSY / EoSY date lines.
+    legacyCellUpdate(
+      "AE55",
+      sf1DateLine("BoSY Date:", options.startDate),
+    ),
+    legacyCellUpdate(
+      "AI55",
+      sf1DateLine("EoSY Date:", options.endDate),
+    ),
+    // Certified Correct: BoSY / EoSY date lines.
+    legacyCellUpdate(
+      "AN54",
+      sf1DateLine("BoSY Date:", options.startDate),
+    ),
+    legacyCellUpdate(
+      "AQ54",
+      sf1DateLine("EoSY Date:", options.endDate),
+    ),
     legacyCellUpdate(
       "A59",
       `Generated on: ${new Intl.DateTimeFormat("en-US", {
@@ -1544,6 +1620,12 @@ async function downloadSF1Word(options: SF1ExcelOptions) {
   replaceWordUnderline(footerCells[2], options.adviser.toUpperCase());
   replaceWordUnderline(footerCells[3], options.schoolHead.toUpperCase());
 
+  // SF1 BoSY/EoSY dates come from the same Start Date and End Date used by
+  // the selected class in the E-Class Record. Apply them to both the
+  // adviser and school-head date lines in the original Word template.
+  setWordSF1Dates(footerCells[2], options.startDate, options.endDate);
+  setWordSF1Dates(footerCells[3], options.startDate, options.endDate);
+
   const nestedTables = Array.from(
     sf1Table.getElementsByTagNameNS(WORD_NS, "tbl"),
   );
@@ -1677,7 +1759,7 @@ function generatedDate() {
 }
 
 function SF1Page() {
-  const [classId, setClassId] = useState(readSchoolFormsClassId);
+  const [classId] = useState(readSchoolFormsClassId);
   const [length, setLength] = useState<"short" | "full">("full");
 
   const { data: profile } = useQuery({
@@ -1763,6 +1845,8 @@ function SF1Page() {
   const division = profile?.division || klass?.division || "";
   const adviser = klass?.teacher_name || profile?.full_name || "";
   const schoolHead = profile?.principal || "";
+  const bosyDate = formatSF1SchoolDate(klass?.start_date);
+  const eosyDate = formatSF1SchoolDate(klass?.end_date);
 
   const exportToExcel = async () => {
     if (!klass) {
@@ -1782,6 +1866,8 @@ function SF1Page() {
         section: klass.section || "",
         adviser,
         schoolHead,
+        startDate: bosyDate,
+        endDate: eosyDate,
         learners,
       });
       toast.success("SF1 downloaded as an Excel 97-2003 (.xls) workbook");
@@ -1813,6 +1899,8 @@ function SF1Page() {
         section: klass.section || "",
         adviser,
         schoolHead,
+        startDate: bosyDate,
+        endDate: eosyDate,
         learners:
           length === "full"
             ? learners
@@ -1894,31 +1982,46 @@ function SF1Page() {
       </div>
 
       <div
-        className="rounded-2xl border-2 p-4 shadow-sm"
+        className="relative overflow-hidden rounded-2xl border-2 px-5 py-3 shadow-sm sm:px-6 sm:py-0.5"
         style={{ backgroundColor: "#FFFBEB", borderColor: DEPED_YELLOW }}
       >
-        <div className="mb-2 text-sm font-semibold text-amber-900">
+        <div className="text-sm font-semibold text-amber-900">
           Form Configuration
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3">
-          <div>
-            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-amber-900">
-              Class
-            </label>
-            <Select value={active} onValueChange={setClassId} disabled={Boolean(selectedSchoolFormsClass)}>
-              <SelectTrigger className="bg-white">
-                <SelectValue placeholder="Pick class" />
-              </SelectTrigger>
-              <SelectContent>
-                {scopedClasses.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.grade_level} · {item.subject} · {item.section || "—"}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <div className="mx-auto mt-1 flex max-w-2xl flex-col items-center">
+          <div className="flex w-full items-center justify-center gap-3 sm:gap-5">
+            <div className="hidden h-px w-20 bg-amber-400 sm:block" />
+            <div
+              className="grid size-9 shrink-0 place-items-center rounded-full"
+              style={{ backgroundColor: "#FEF0B6" }}
+            >
+              <GraduationCap className="size-5 text-amber-950" />
+            </div>
+            <div className="hidden h-px w-20 bg-amber-400 sm:block" />
           </div>
+
+          <div className="mt-1 text-center text-xs font-bold uppercase tracking-[0.32em] text-amber-950">
+            Class
+          </div>
+
+          <div className="mt-1 flex w-full max-w-[300px] items-center gap-1.5 rounded-lg border border-amber-300 bg-white/75 px-2 py-2 shadow-sm">
+            <div className="grid size-5 shrink-0 place-items-center rounded-md bg-amber-50 text-amber-700">
+              <Users className="size-3" />
+            </div>
+
+            <div className="min-w-0 flex-1 text-center">
+              <div className="truncate text-[11px] font-bold text-amber-950">
+                {klass
+                  ? `${klass.grade_level || "—"} · ${klass.subject || "—"} · ${klass.section || "—"}`
+                  : "No class selected"}
+              </div>
+            </div>
+          </div>
+
+          <p className="mt-0.5 text-center text-[9px] text-amber-900/60">
+            Selected class for this form
+          </p>
         </div>
       </div>
 
@@ -2297,8 +2400,12 @@ function SF1Page() {
                 </div>
               </div>
               <div className="grid w-[65%] grid-cols-2 gap-1 font-bold">
-                <div className="border-b border-black pb-[2px]">BoSY Date:</div>
-                <div className="border-b border-black pb-[2px]">EoSY Date:</div>
+                <div className="border-b border-black pb-[2px]">
+                  {sf1DateLine("BoSY Date:", bosyDate)}
+                </div>
+                <div className="border-b border-black pb-[2px]">
+                  {sf1DateLine("EoSY Date:", eosyDate)}
+                </div>
               </div>
             </div>
 
@@ -2313,8 +2420,12 @@ function SF1Page() {
                 </div>
               </div>
               <div className="grid w-[65%] grid-cols-2 gap-1 font-bold">
-                <div className="border-b border-black pb-[2px]">BoSY Date:</div>
-                <div className="border-b border-black pb-[2px]">EoSY Date:</div>
+                <div className="border-b border-black pb-[2px]">
+                  {sf1DateLine("BoSY Date:", bosyDate)}
+                </div>
+                <div className="border-b border-black pb-[2px]">
+                  {sf1DateLine("EoSY Date:", eosyDate)}
+                </div>
               </div>
               <div className=" grid w-[65%] border-t border-black pt-[2px] text-center font-bold">
                 Generated thru LIS

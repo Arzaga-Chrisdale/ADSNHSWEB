@@ -669,7 +669,10 @@ function FormsPage() {
 
         <button
           type="button"
-          onClick={() => nav({ to: "/students" })}
+          onClick={() => {
+            if (active) rememberSchoolFormsClassId(active);
+            void nav({ to: "/students" });
+          }}
           className="inline-flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-medium hover:bg-muted"
         >
           <Users className="size-4" /> My Students
