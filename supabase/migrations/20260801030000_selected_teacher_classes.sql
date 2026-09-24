@@ -1,6 +1,40 @@
+-- 20260801030000_selected_teacher_classes.sql
+--
+-- Combined migration:
+-- 1. Grade 12 custom subject + optional units support.
+-- 2. Load all classes owned by a selected Class Adviser or Subject Teacher.
+-- 3. Create a Grade Request for the selected teacher's chosen class.
+--
+-- Safe to run more than once.
+-- This migration does not delete existing class, learner, grade, or request data.
+
+begin;
+
+-- ============================================================================
+-- 1. Grade 12 custom subject + optional units support
+-- ============================================================================
+--
+-- Frontend rule:
+--   Grade 12 subject is free-text.
+--   Grade 12 units may be left blank (NULL).
+--
+-- The existing classes.subject column remains text and continues to store
+-- both predefined subjects and custom Grade 12 subject names.
+
+alter table public.classes
+  alter column units drop not null;
+
+comment on column public.classes.units is
+  'Optional class units. Grade 12 classes may store NULL when no unit value is selected.';
+
+
+-- ============================================================================
+-- 2. Load all classes owned by the selected teacher
+-- ============================================================================
+--
 -- Both Class Adviser and Subject Teacher email selections load all classes
 -- owned by the selected account. The request is attached to the selected
--- teacher's chosen class. This migration does not delete existing data.
+-- teacher's chosen class.
 
 create or replace function public.list_selected_teacher_classes(
   p_teacher_id uuid
@@ -67,6 +101,11 @@ from public;
 
 grant execute on function public.list_selected_teacher_classes(uuid)
 to authenticated;
+
+
+-- ============================================================================
+-- 3. Create a Grade Request for the selected teacher's chosen class
+-- ============================================================================
 
 create or replace function public.create_selected_teacher_grade_request(
   p_advisory_class_id uuid,
@@ -198,7 +237,8 @@ begin
 
   if v_inserted = 0 then
     if v_batch_created then
-      delete from public.grade_request_batches where id = v_batch_id;
+      delete from public.grade_request_batches
+      where id = v_batch_id;
     end if;
 
     raise exception 'A Grade Request was already sent to this teacher for the selected class and grading period.';
@@ -213,7 +253,10 @@ begin
   ) values (
     v_batch_id,
     v_user_id,
-    case when v_batch_created then 'request_created' else 'request_recipients_added' end,
+    case
+      when v_batch_created then 'request_created'
+      else 'request_recipients_added'
+    end,
     'pending',
     jsonb_build_object(
       'grading_period', p_grading_period,
@@ -246,4 +289,7 @@ grant execute on function public.create_selected_teacher_grade_request(
 )
 to authenticated;
 
+commit;
+
+-- Tell PostgREST/Supabase to refresh its schema cache after the migration.
 notify pgrst, 'reload schema';

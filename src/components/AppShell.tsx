@@ -237,10 +237,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-20 border-b bg-card/90 backdrop-blur print:hidden">
-        <div className="mx-auto flex max-w-[1600px] items-stretch gap-1.5 px-2 sm:gap-3 sm:px-4">
+        <div className="mx-auto flex w-full items-stretch gap-2 px-3 sm:gap-3 sm:px-4 lg:px-6">
           <Link
             to={dashboardPath}
-            className="flex min-w-0 flex-1 items-center gap-2 py-3 sm:gap-3 lg:w-[300px] lg:flex-none xl:w-[400px]"
+            className="flex min-w-0 flex-1 items-center gap-2 py-3 sm:gap-3 lg:w-[340px] lg:flex-none xl:w-[390px]"
           >
             <img
               src={logo}
@@ -267,7 +267,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <nav
             id="primary-navigation"
             aria-label="Main navigation"
-            className="mx-auto hidden h-[72px] min-w-0 flex-1 self-center lg:grid"
+            className="hidden h-[72px] min-w-0 flex-1 self-center gap-1 lg:grid xl:gap-2"
             style={{
               gridTemplateColumns: `repeat(${Math.max(navigationItems.length, 1)}, minmax(0, 1fr))`,
             }}
@@ -283,7 +283,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                       key={item.to}
                       to={item.to}
                       aria-label={item.label}
-                      className="group relative flex min-w-0 items-center justify-center overflow-hidden px-1 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+                      className="group relative flex min-w-0 items-center justify-center overflow-hidden rounded-xl px-2 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
                     >
                       <span
                         className={`grid size-10 shrink-0 place-items-center rounded-xl border transition-all duration-200 ease-out group-hover:-translate-y-2 group-hover:shadow-sm group-focus-visible:-translate-y-2 group-focus-visible:shadow-sm ${
@@ -324,7 +324,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 ))}
           </nav>
 
-          <div className="flex shrink-0 items-center justify-end gap-1.5 py-3 sm:gap-2 lg:w-[300px] xl:w-[400px]">
+          <div className="flex shrink-0 items-center justify-end gap-2 py-3 sm:gap-2.5 lg:pl-3">
             <NotificationBell />
 
             <div>
@@ -347,7 +347,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                       </div>
                     )}
 
-                    <div className="hidden min-w-0 leading-tight 2xl:block">
+                    <div className="hidden min-w-0 max-w-[150px] leading-tight xl:block">
                       <div className="truncate text-xs font-semibold">
                         {profileLoading ? "Loading..." : currentUserProfile?.full_name || "Teacher"}
                       </div>
@@ -378,8 +378,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               onClick={signOut}
               className="hidden border-destructive/40 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive sm:inline-flex md:px-3"
             >
-              <LogOut className="size-4 2xl:mr-1" />
-              <span className="hidden 2xl:inline">Logout</span>
+              <LogOut className="size-4 xl:mr-1" />
+              <span className="hidden xl:inline">Logout</span>
             </Button>
 
             <Button
@@ -451,7 +451,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
       </header>
 
-      <div className="mx-auto max-w-7xl px-4 py-6">
+      <div className="mx-auto w-full max-w-7xl px-4 py-6">
         <main className="min-w-0">{children}</main>
       </div>
     </div>

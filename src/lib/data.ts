@@ -47,7 +47,10 @@ export type ClassRow = {
   grade_level: string;
   section: string;
   school_year: string;
+
+  // Units may be null. Grade 12 can be created without selecting units.
   units: number | null;
+
   start_date: string | null;
   end_date: string | null;
   school_name: string | null;
@@ -57,6 +60,7 @@ export type ClassRow = {
   district: string | null;
   teacher_name: string | null;
 };
+
 export type StudentRow = {
   id: string;
   class_id: string;
@@ -73,6 +77,7 @@ export type StudentRow = {
   guardian: string | null;
   contact_number: string | null;
 };
+
 export type AttendanceRow = {
   id: string;
   student_id: string;
@@ -82,6 +87,7 @@ export type AttendanceRow = {
   status: "present" | "absent" | "late" | "excused" | "holiday";
   reason: string | null;
 };
+
 export type GradeRow = {
   id: string;
   student_id: string;
@@ -91,6 +97,7 @@ export type GradeRow = {
   term: string;
   score: number | null;
 };
+
 export type GradeComponent = {
   id: string;
   class_id: string;
@@ -99,6 +106,7 @@ export type GradeComponent = {
   component: "WW" | "PT" | "QA";
   weight: number;
 };
+
 export type GradeActivity = {
   id: string;
   class_id: string;
@@ -109,6 +117,7 @@ export type GradeActivity = {
   title: string | null;
   hps: number;
 };
+
 export type ActivityScore = {
   id: string;
   activity_id: string;
@@ -139,8 +148,14 @@ export function descriptorFor(avg: number | null) {
   return { label: "Emerging", tone: "danger" as const };
 }
 
-export function computeAverage(scores: Array<number | null | undefined>): number | null {
-  const nums = scores.filter((s): s is number => typeof s === "number" && !isNaN(s));
+export function computeAverage(
+  scores: Array<number | null | undefined>,
+): number | null {
+  const nums = scores.filter(
+    (s): s is number => typeof s === "number" && !isNaN(s),
+  );
   if (!nums.length) return null;
-  return Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 100) / 100;
+  return (
+    Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 100) / 100
+  );
 }

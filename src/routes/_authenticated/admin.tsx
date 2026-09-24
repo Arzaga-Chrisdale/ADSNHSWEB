@@ -160,6 +160,8 @@ type ClassRow = {
   teacher_name?: string | null;
   track_shs?: string | null;
   units?: number | null;
+  start_date?: string | null;
+  end_date?: string | null;
   created_at?: string | null;
 };
 
@@ -1285,7 +1287,8 @@ function AdminAnalyticsInsights() {
                   </p>
                   <p className="mt-1 max-w-sm text-xs leading-5 text-[var(--admin-text-muted)]">
                     Choose any class from the list to view its term analytics,
-                    proficiency distribution, and forecast panel.
+                    proficiency distribution, learner-level Naive Bayes predictions,
+                    and Term 3 section forecast.
                   </p>
                 </div>
               </div>
@@ -1307,7 +1310,6 @@ function AdminAnalyticsInsights() {
                 students={analyticsStudents}
                 subject={selectedClass.subject || ""}
                 initialTerm="1"
-                forecastData={null}
                 adminView
                 classLabel={classLabel(selectedClass)}
                 teacherLabel={
@@ -1324,9 +1326,10 @@ function AdminAnalyticsInsights() {
       <div className="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs leading-5 text-sky-800">
         <UserRound className="mt-0.5 size-4 shrink-0" />
         <span>
-          Admin Analytics is read-only. It reuses the existing class analytics
-          calculations so the Admin sees the same actual grades, proficiency
-          distribution, and model forecast output as the teacher.
+          Admin Analytics is read-only. It reuses the same class calculations
+          and Gaussian Naive Bayes flow as the teacher, so the Admin sees the
+          same actual Term 1/Term 2 data, learner-level Term 3 predictions,
+          probability output, section forecast, and actionable insights.
         </span>
       </div>
     </section>
@@ -2375,6 +2378,8 @@ type Sf1ExcelExportOptions = {
   section: string;
   teacherName: string;
   schoolHead: string;
+  startDate: string;
+  endDate: string;
   male: Array<StudentRow & { age: string }>;
   female: Array<StudentRow & { age: string }>;
 };
@@ -2713,6 +2718,11 @@ function sf1AdminLearnerValues(
 }
 
 function buildSf1AdminLegacyCellUpdates(options: Sf1ExcelExportOptions) {
+  const registration = buildAdminSf1RegistrationSummary([
+    ...options.male,
+    ...options.female,
+  ]);
+
   if (
     options.male.length > SF1_ADMIN_MALE_ROWS ||
     options.female.length > SF1_ADMIN_FEMALE_ROWS
@@ -2763,14 +2773,35 @@ function buildSf1AdminLegacyCellUpdates(options: Sf1ExcelExportOptions) {
       "A47",
       options.male.length + options.female.length,
     ),
-    sf1AdminLegacyCellUpdate("X50", options.male.length),
-    sf1AdminLegacyCellUpdate("X53", options.female.length),
-    sf1AdminLegacyCellUpdate(
-      "X55",
-      options.male.length + options.female.length,
-    ),
+    // REGISTERED summary: same BoSY/EoSY logic as the Class Adviser SF1.
+    sf1AdminLegacyCellUpdate("X50", registration.bosy.male),
+    sf1AdminLegacyCellUpdate("X53", registration.bosy.female),
+    sf1AdminLegacyCellUpdate("X55", registration.bosy.total),
+    sf1AdminLegacyCellUpdate("AA50", registration.eosy.male),
+    sf1AdminLegacyCellUpdate("AA53", registration.eosy.female),
+    sf1AdminLegacyCellUpdate("AA55", registration.eosy.total),
     sf1AdminLegacyCellUpdate("AE50", options.teacherName.toUpperCase()),
     sf1AdminLegacyCellUpdate("AN50", options.schoolHead.toUpperCase()),
+
+    // Use the same selected class Start Date / End Date as the
+    // Class Adviser SF1.
+    sf1AdminLegacyCellUpdate(
+      "AE55",
+      options.startDate ? `BoSY Date: ${options.startDate}` : "BoSY Date:",
+    ),
+    sf1AdminLegacyCellUpdate(
+      "AI55",
+      options.endDate ? `EoSY Date: ${options.endDate}` : "EoSY Date:",
+    ),
+    sf1AdminLegacyCellUpdate(
+      "AN54",
+      options.startDate ? `BoSY Date: ${options.startDate}` : "BoSY Date:",
+    ),
+    sf1AdminLegacyCellUpdate(
+      "AQ54",
+      options.endDate ? `EoSY Date: ${options.endDate}` : "EoSY Date:",
+    ),
+
     sf1AdminLegacyCellUpdate(
       "A59",
       `Generated on: ${new Intl.DateTimeFormat("en-PH", {
@@ -3436,7 +3467,8 @@ async function downloadSf9NewExcelWorkbook(
       const termGrade =
         spec.term === "1" ? row?.term1 ?? null : spec.term === "2" ? row?.term2 ?? null : row?.term3 ?? null;
       setAdminXlsxValue(sheet, `${termColumn}${spec.excelRow}`, rounded(termGrade));
-      setAdminXlsxValue(sheet, `I${spec.excelRow}`, row?.units ?? null);
+      // Grade 12 keeps the official Units column but leaves it blank.
+      setAdminXlsxText(sheet, `I${spec.excelRow}`, "");
       setAdminXlsxValue(sheet, `J${spec.excelRow}`, rounded(row?.final ?? termGrade));
       setAdminXlsxText(
         sheet,
@@ -3526,6 +3558,24 @@ function formatDate(value: string | null | undefined) {
   }).format(date);
 }
 
+function formatAdminSf1SchoolDate(value?: string | null) {
+  if (!value) return "";
+
+  // Class dates are stored as YYYY-MM-DD. Read the date parts directly so
+  // the SF1 BoSY/EoSY date cannot shift because of timezone conversion.
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (iso) return `${iso[2]}/${iso[3]}/${iso[1]}`;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
 function formatDateTime(value: string | null | undefined) {
   if (!value) return { date: "-", time: "-" };
 
@@ -3575,6 +3625,66 @@ function studentTransferStatus(
   }
 
   return "none";
+}
+
+type AdminSf1RegistrationCount = {
+  male: number;
+  female: number;
+  total: number;
+};
+
+type AdminSf1RegistrationSummary = {
+  bosy: AdminSf1RegistrationCount;
+  eosy: AdminSf1RegistrationCount;
+  transferIn: AdminSf1RegistrationCount;
+  transferOut: AdminSf1RegistrationCount;
+};
+
+function adminSf1WasTransferIn(student: StudentRow) {
+  return (
+    studentTransferStatus(student) === "in" ||
+    Boolean(String(student.previous_school ?? "").trim())
+  );
+}
+
+function adminSf1CountLearners(
+  learners: readonly StudentRow[],
+): AdminSf1RegistrationCount {
+  const male = learners.filter((student) =>
+    normalize(student.sex).startsWith("m"),
+  ).length;
+  const female = learners.filter((student) =>
+    normalize(student.sex).startsWith("f"),
+  ).length;
+
+  return {
+    male,
+    female,
+    total: learners.length,
+  };
+}
+
+function buildAdminSf1RegistrationSummary(
+  learners: readonly StudentRow[],
+): AdminSf1RegistrationSummary {
+  const transferInLearners = learners.filter(adminSf1WasTransferIn);
+  const transferOutLearners = learners.filter(
+    (student) => studentTransferStatus(student) === "out",
+  );
+
+  const bosyLearners = learners.filter(
+    (student) => !adminSf1WasTransferIn(student),
+  );
+  const eosyLearners = learners.filter(
+    (student) => studentTransferStatus(student) !== "out",
+  );
+
+  return {
+    bosy: adminSf1CountLearners(bosyLearners),
+    eosy: adminSf1CountLearners(eosyLearners),
+    transferIn: adminSf1CountLearners(transferInLearners),
+    transferOut: adminSf1CountLearners(transferOutLearners),
+  };
 }
 
 function StudentTransferStatusBadge({ student }: { student: StudentRow }) {
@@ -3652,6 +3762,8 @@ function Sf1SpreadsheetPreview({
   section,
   teacherName,
   schoolHead,
+  startDate,
+  endDate,
   male,
   female,
 }: {
@@ -3664,6 +3776,8 @@ function Sf1SpreadsheetPreview({
   section: string;
   teacherName: string;
   schoolHead: string;
+  startDate: string;
+  endDate: string;
   male: Sf1PreviewLearner[];
   female: Sf1PreviewLearner[];
 }) {
@@ -3671,6 +3785,10 @@ function Sf1SpreadsheetPreview({
     ...male.map((learner) => ({ learner, sex: "M" as const })),
     ...female.map((learner) => ({ learner, sex: "F" as const })),
   ];
+  const registrationSummary = buildAdminSf1RegistrationSummary([
+    ...male,
+    ...female,
+  ]);
 
   const cellClass =
     "border border-black px-[2px] py-[2px] align-middle leading-[1.05]";
@@ -3941,18 +4059,30 @@ function Sf1SpreadsheetPreview({
             </tr>
             <tr>
               <td className={tinyCellClass}>MALE</td>
-              <td className={tinyCellClass}>{male.length}</td>
-              <td className={tinyCellClass} />
+              <td className={tinyCellClass}>
+                {registrationSummary.bosy.male}
+              </td>
+              <td className={tinyCellClass}>
+                {registrationSummary.eosy.male}
+              </td>
             </tr>
             <tr>
               <td className={tinyCellClass}>FEMALE</td>
-              <td className={tinyCellClass}>{female.length}</td>
-              <td className={tinyCellClass} />
+              <td className={tinyCellClass}>
+                {registrationSummary.bosy.female}
+              </td>
+              <td className={tinyCellClass}>
+                {registrationSummary.eosy.female}
+              </td>
             </tr>
             <tr>
               <td className={tinyCellClass}>TOTAL</td>
-              <td className={tinyCellClass}>{male.length + female.length}</td>
-              <td className={tinyCellClass} />
+              <td className={tinyCellClass}>
+                {registrationSummary.bosy.total}
+              </td>
+              <td className={tinyCellClass}>
+                {registrationSummary.eosy.total}
+              </td>
             </tr>
           </tbody>
         </table>
@@ -3966,14 +4096,18 @@ function Sf1SpreadsheetPreview({
             (Signature of Adviser over Printed Name)
           </div>
 
-          <div className="mx-auto mt-4 grid max-w-[150px] grid-cols-2 gap-4">
-            <div>
-              <div className="border-b border-black">&nbsp;</div>
-              <div className="mt-[1px]">BoSY Date</div>
+          <div className="mx-auto mt-7 grid max-w-[150px] grid-cols-2 gap-4">
+            <div className="text-center">
+              <div className="inline-block w-[70px] border-b border-black pb-[1px] text-center leading-none">
+                {startDate || "\u00a0"}
+              </div>
+              <div className="mt-[2px]">BoSY Date</div>
             </div>
-            <div>
-              <div className="border-b border-black">&nbsp;</div>
-              <div className="mt-[1px]">EoSY Date</div>
+            <div className="text-center">
+              <div className="inline-block w-[70px] border-b border-black pb-[1px] text-center leading-none">
+                {endDate || "\u00a0"}
+              </div>
+              <div className="mt-[2px]">EoSY Date</div>
             </div>
           </div>
         </div>
@@ -3987,14 +4121,18 @@ function Sf1SpreadsheetPreview({
             (Signature of School Head over Printed Name)
           </div>
 
-          <div className="mx-auto mt-4 grid max-w-[150px] grid-cols-2 gap-4">
-            <div>
-              <div className="border-b border-black">&nbsp;</div>
-              <div className="mt-[1px]">BoSY Date</div>
+          <div className="mx-auto mt-7 grid max-w-[150px] grid-cols-2 gap-4">
+            <div className="text-center">
+              <div className="inline-block w-[70px] border-b border-black pb-[1px] text-center leading-none">
+                {startDate || "\u00a0"}
+              </div>
+              <div className="mt-[2px]">BoSY Date</div>
             </div>
-            <div>
-              <div className="border-b border-black">&nbsp;</div>
-              <div className="mt-[1px]">EoSY Date</div>
+            <div className="text-center">
+              <div className="inline-block w-[70px] border-b border-black pb-[1px] text-center leading-none">
+                {endDate || "\u00a0"}
+              </div>
+              <div className="mt-[2px]">EoSY Date</div>
             </div>
           </div>
 
@@ -7665,6 +7803,547 @@ function TimelinePoint({
   );
 }
 
+
+function Sf1SubmittedReviewWorkspace({
+  submission,
+  classes,
+  students,
+  schoolProfile,
+  remarks,
+  setRemarks,
+  reviewZoom,
+  setReviewZoom,
+  busyAction,
+  onReview,
+  onClose,
+}: {
+  submission: SchoolFormSubmissionRow;
+  classes: ClassRow[];
+  students: StudentRow[];
+  schoolProfile: ProfileRow | null;
+  remarks: string;
+  setRemarks: (value: string) => void;
+  reviewZoom: number;
+  setReviewZoom: (value: number) => void;
+  busyAction: "approved" | "returned" | null;
+  onReview: (status: "approved" | "returned") => Promise<void>;
+  onClose: () => void;
+}) {
+  const selectedClass =
+    classes.find((item) => item.id === submission.class_id) ?? null;
+
+  const sf1Learners = useMemo(() => {
+    return students
+      .filter((student) => student.class_id === submission.class_id)
+      .map((student) => {
+        const normalizedSex = normalize(student.sex);
+        const sexGroup = normalizedSex.startsWith("m")
+          ? "male"
+          : normalizedSex.startsWith("f")
+            ? "female"
+            : "unspecified";
+
+        return {
+          ...student,
+          age: calculateAge(student.birthdate),
+          sexGroup,
+        } satisfies Sf1PreviewLearner;
+      })
+      .sort((left, right) => {
+        const lastNameComparison = normalize(left.last_name).localeCompare(
+          normalize(right.last_name),
+        );
+        if (lastNameComparison !== 0) return lastNameComparison;
+        return normalize(left.first_name).localeCompare(
+          normalize(right.first_name),
+        );
+      });
+  }, [students, submission.class_id]);
+
+  const male = sf1Learners.filter((learner) => learner.sexGroup === "male");
+  const female = sf1Learners.filter(
+    (learner) => learner.sexGroup === "female",
+  );
+  const unspecified = sf1Learners.filter(
+    (learner) => learner.sexGroup === "unspecified",
+  );
+
+  const snapshotClass =
+    submission.snapshot &&
+    typeof submission.snapshot === "object" &&
+    "class" in submission.snapshot &&
+    submission.snapshot.class &&
+    typeof submission.snapshot.class === "object"
+      ? (submission.snapshot.class as Record<string, unknown>)
+      : null;
+
+  const schoolYear =
+    submission.school_year ||
+    selectedClass?.school_year ||
+    String(snapshotClass?.school_year ?? "");
+  const gradeLevel =
+    submission.grade_level ||
+    selectedClass?.grade_level ||
+    String(snapshotClass?.grade_level ?? "");
+  const section =
+    submission.section ||
+    selectedClass?.section ||
+    String(snapshotClass?.section ?? "");
+  const teacherName =
+    submission.adviser_name || selectedClass?.teacher_name || "Class Adviser";
+  const schoolName =
+    schoolProfile?.school_name || "Agusan del Sur National Science High School";
+  const schoolId = schoolProfile?.school_id || "";
+  const region = schoolProfile?.region || "";
+  const division = schoolProfile?.division || "";
+  const schoolHead = schoolProfile?.principal || "School Head";
+  const startDate = formatAdminSf1SchoolDate(selectedClass?.start_date);
+  const endDate = formatAdminSf1SchoolDate(selectedClass?.end_date);
+  const submittedAt = formatDateTime(submission.submitted_at);
+  const pending =
+    submission.status === "submitted" ||
+    submission.status === "pending_review";
+
+  const statusLabel = pending
+    ? "Pending Review"
+    : submission.status === "approved"
+      ? "Approved"
+      : "Returned";
+  const statusTone = pending
+    ? "border-amber-200 bg-amber-50 text-amber-700"
+    : submission.status === "approved"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : "border-rose-200 bg-rose-50 text-rose-700";
+
+  const pageScale = reviewZoom / 100;
+  const pageWidth = 1248;
+  const pageHeight = 816;
+
+  const infoRows = [
+    { label: "Form Type", value: "SF1 - School Register", icon: FileText },
+    { label: "Grade Level", value: gradeLevel || "—", icon: GraduationCap },
+    { label: "Section", value: section || "—", icon: BookOpen },
+    { label: "School Year", value: schoolYear || "—", icon: CalendarRange },
+    { label: "Submitted By", value: teacherName, icon: UserRound },
+    {
+      label: "Submitted At",
+      value:
+        submittedAt.date === "-"
+          ? "—"
+          : `${submittedAt.date}, ${submittedAt.time}`,
+      icon: CalendarDays,
+    },
+    { label: "Status", value: statusLabel, icon: ShieldCheck },
+  ] as const;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={Boolean(busyAction)}
+            className="mb-4 inline-flex h-9 items-center gap-2 rounded-xl border border-[var(--admin-border)] bg-[var(--admin-white)] px-4 text-xs font-semibold text-[var(--admin-primary)] shadow-sm transition hover:bg-[var(--admin-nav-hover)] disabled:opacity-50"
+          >
+            <ChevronLeft className="size-4" />
+            Back to Submitted Forms
+          </button>
+
+          <h1 className="text-2xl font-bold text-[var(--admin-text-heading)]">
+            Review SF1
+          </h1>
+          <p className="mt-1 text-sm text-[var(--admin-text-muted)]">
+            {gradeLevel || "Grade"} · {section || "No Section"} · {teacherName}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <span
+            className={`inline-flex h-9 items-center gap-2 rounded-full border px-4 text-xs font-bold ${statusTone}`}
+          >
+            <span className="size-2 rounded-full bg-current opacity-70" />
+            {statusLabel}
+          </span>
+
+          {pending && (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void onReview("returned")}
+                disabled={Boolean(busyAction)}
+                className="h-10 min-w-44 rounded-xl border-rose-300 text-rose-700 hover:bg-rose-50"
+              >
+                {busyAction === "returned" && (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                )}
+                Return for Correction
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void onReview("approved")}
+                disabled={Boolean(busyAction)}
+                className="h-10 min-w-40 rounded-xl bg-[var(--admin-primary)] text-white hover:bg-[var(--admin-primary-hover)]"
+              >
+                {busyAction === "approved" && (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                )}
+                Approve Form
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="min-w-0 overflow-hidden rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-white)] shadow-[var(--admin-shadow-panel)]">
+          <div className="flex flex-col gap-3 border-b border-[var(--admin-divider)] px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-base font-bold text-[var(--admin-text-heading)]">
+                Form Preview (Exact Bondpaper Size)
+              </h2>
+              <p className="mt-1 text-xs text-[var(--admin-text-muted)]">
+                Preview the submitted SF1 exactly like the Class Adviser bondpaper layout (Long 8.5&quot; × 13&quot;).
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setReviewZoom(85)}
+                className="inline-flex h-9 items-center gap-2 rounded-xl border border-[var(--admin-border)] bg-white px-3 text-xs font-semibold text-[var(--admin-text-heading)] hover:bg-[var(--admin-nav-hover)]"
+                title="Fit preview to width"
+              >
+                Fit to Width
+                <ChevronDown className="size-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReviewZoom(Math.max(70, reviewZoom - 10))}
+                disabled={reviewZoom <= 70}
+                className="grid size-9 place-items-center rounded-xl border border-[var(--admin-border)] bg-white text-[var(--admin-text-heading)] hover:bg-[var(--admin-nav-hover)] disabled:opacity-40"
+                title="Zoom out"
+              >
+                <Minus className="size-4" />
+              </button>
+
+              <span className="min-w-14 rounded-xl border border-[var(--admin-border)] bg-white px-2 py-2 text-center text-xs font-semibold">
+                {reviewZoom}%
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setReviewZoom(Math.min(220, reviewZoom + 10))}
+                disabled={reviewZoom >= 220}
+                className="grid size-9 place-items-center rounded-xl border border-[var(--admin-border)] bg-white text-[var(--admin-text-heading)] hover:bg-[var(--admin-nav-hover)] disabled:opacity-40"
+                title="Zoom in"
+              >
+                <Plus className="size-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReviewZoom(100)}
+                className="grid size-9 place-items-center rounded-xl border border-[var(--admin-border)] bg-white text-[var(--admin-text-heading)] hover:bg-[var(--admin-nav-hover)]"
+                title="Actual bondpaper size"
+              >
+                <Maximize2 className="size-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="min-w-0 bg-[#ece9e6] p-4">
+            <div className="max-h-[840px] min-h-[700px] overflow-auto rounded-xl border border-[#ded9d4] bg-[#e8e5e2] p-4">
+              <div
+                className="mx-auto"
+                style={{
+                  width: `${pageWidth * pageScale}px`,
+                  height: `${pageHeight * pageScale}px`,
+                }}
+              >
+                <div
+                  className="origin-top-left bg-white shadow-[0_14px_34px_rgba(55,45,38,0.18)]"
+                  style={{
+                    width: `${pageWidth}px`,
+                    height: `${pageHeight}px`,
+                    transform: `scale(${pageScale})`,
+                    transformOrigin: "top left",
+                  }}
+                >
+                  <Sf1SpreadsheetPreview
+                    schoolName={schoolName}
+                    schoolId={schoolId}
+                    region={region}
+                    division={division}
+                    schoolYear={schoolYear}
+                    gradeLevel={gradeLevel}
+                    section={section}
+                    teacherName={teacherName}
+                    schoolHead={schoolHead}
+                    startDate={startDate}
+                    endDate={endDate}
+                    male={male}
+                    female={[...female, ...unspecified]}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside className="space-y-4">
+          <section className="overflow-hidden rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-white)] shadow-[var(--admin-shadow-panel)]">
+            <div className="flex items-center gap-3 border-b border-[var(--admin-divider)] px-4 py-4">
+              <div className="grid size-9 place-items-center rounded-xl bg-rose-50 text-[var(--admin-primary)]">
+                <ClipboardCheck className="size-4" />
+              </div>
+              <h2 className="font-bold text-[var(--admin-text-heading)]">
+                Submission Information
+              </h2>
+            </div>
+
+            <div className="divide-y divide-[var(--admin-divider)] px-4">
+              {infoRows.map(({ label, value, icon: Icon }) => (
+                <div
+                  key={label}
+                  className="grid grid-cols-[24px_104px_minmax(0,1fr)] items-start gap-2 py-3"
+                >
+                  <Icon className="mt-0.5 size-4 text-[var(--admin-text-muted)]" />
+                  <span className="text-xs text-[var(--admin-text-muted)]">
+                    {label}
+                  </span>
+                  <span
+                    className={`break-words text-xs font-semibold text-[var(--admin-text-heading)] ${
+                      label === "Status"
+                        ? pending
+                          ? "text-amber-700"
+                          : submission.status === "approved"
+                            ? "text-emerald-700"
+                            : "text-rose-700"
+                        : ""
+                    }`}
+                  >
+                    {value}
+                    {label === "Submitted By" && (
+                      <span className="mt-0.5 block text-[10px] font-normal text-[var(--admin-text-muted)]">
+                        Class Adviser
+                      </span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-white)] p-4 shadow-[var(--admin-shadow-panel)]">
+            <div className="mb-3 flex items-center gap-3">
+              <div className="grid size-9 place-items-center rounded-xl bg-rose-50 text-[var(--admin-primary)]">
+                <FileText className="size-4" />
+              </div>
+              <h2 className="font-bold text-[var(--admin-text-heading)]">
+                Admin Remarks
+              </h2>
+            </div>
+
+            <textarea
+              id="admin-sf1-review-remarks"
+              value={remarks}
+              onChange={(event) => setRemarks(event.target.value.slice(0, 500))}
+              maxLength={500}
+              placeholder="Enter corrections or an optional approval note..."
+              disabled={!pending}
+              className="min-h-[180px] w-full resize-none rounded-xl border border-[var(--admin-border)] bg-[var(--admin-surface-soft)] px-3 py-3 text-sm leading-6 text-[var(--admin-text-heading)] outline-none transition focus:border-[var(--admin-primary)] focus:ring-2 focus:ring-[var(--admin-primary)]/10 disabled:opacity-60"
+            />
+            <div className="mt-2 text-right text-[10px] text-[var(--admin-text-muted)]">
+              {remarks.length}/500
+            </div>
+
+            {pending && (
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void onReview("returned")}
+                  disabled={Boolean(busyAction)}
+                  className="rounded-xl border-rose-300 text-rose-700 hover:bg-rose-50"
+                >
+                  {busyAction === "returned" && (
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                  )}
+                  Return for Correction
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void onReview("approved")}
+                  disabled={Boolean(busyAction)}
+                  className="rounded-xl bg-[var(--admin-primary)] text-white hover:bg-[var(--admin-primary-hover)]"
+                >
+                  {busyAction === "approved" && (
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                  )}
+                  Approve Form
+                </Button>
+              </div>
+            )}
+          </section>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+
+function ReturnCorrectionDialog({
+  open,
+  formName,
+  gradeLevel,
+  section,
+  adviserName,
+  remarks,
+  setRemarks,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  formName: string;
+  gradeLevel: string;
+  section: string;
+  adviserName: string;
+  remarks: string;
+  setRemarks: (value: string) => void;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const correctionText = remarks.trim();
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !busy) onCancel();
+      }}
+    >
+      <DialogContent className="w-[calc(100%-2rem)] max-w-[560px] gap-0 overflow-hidden rounded-2xl border border-[#ead9d1] bg-[#fffdf9] p-0 shadow-2xl">
+        <div className="px-6 pb-5 pt-6 sm:px-7 sm:pt-7">
+          <DialogHeader className="space-y-0 text-left">
+            <div className="flex items-start gap-4">
+              <div className="grid size-14 shrink-0 place-items-center rounded-full border border-rose-100 bg-rose-50 text-rose-600">
+                <RefreshCcw className="size-6" />
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <DialogTitle className="text-[22px] font-bold leading-tight text-[var(--admin-text-heading)]">
+                  Return {formName} for Correction?
+                </DialogTitle>
+                <DialogDescription className="mt-2 text-sm leading-6 text-[var(--admin-text-muted)]">
+                  Enter the correction needed before returning this form to the
+                  Class Adviser.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="mt-5 grid gap-2 rounded-xl border border-[#eadfd7] bg-[#fff9f2] p-4 text-xs">
+            <div className="grid grid-cols-[88px_1fr] gap-2">
+              <span className="text-[var(--admin-text-muted)]">Form</span>
+              <span className="font-bold text-[var(--admin-text-heading)]">
+                {formName}
+              </span>
+            </div>
+            <div className="grid grid-cols-[88px_1fr] gap-2">
+              <span className="text-[var(--admin-text-muted)]">Class</span>
+              <span className="font-semibold text-[var(--admin-text-heading)]">
+                {gradeLevel || "Grade"} · {section || "No Section"}
+              </span>
+            </div>
+            <div className="grid grid-cols-[88px_1fr] gap-2">
+              <span className="text-[var(--admin-text-muted)]">Adviser</span>
+              <span className="font-semibold text-[var(--admin-text-heading)]">
+                {adviserName || "Class Adviser"}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <label
+              htmlFor="return-correction-message"
+              className="text-xs font-bold text-[var(--admin-text-heading)]"
+            >
+              Correction Required <span className="text-rose-600">*</span>
+            </label>
+
+            <textarea
+              id="return-correction-message"
+              value={remarks}
+              onChange={(event) => setRemarks(event.target.value)}
+              maxLength={500}
+              autoFocus
+              disabled={busy}
+              placeholder="Example: Please correct the learner information, dates, or missing entries before resubmitting this form."
+              className="mt-2 min-h-[150px] w-full resize-none rounded-xl border border-rose-200 bg-white px-4 py-3 text-sm leading-6 text-[var(--admin-text-heading)] outline-none transition placeholder:text-[var(--admin-text-muted)] focus:border-rose-400 focus:ring-2 focus:ring-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+            />
+
+            <div className="mt-1.5 flex items-center justify-between gap-3">
+              <p
+                className={`text-[10px] ${
+                  correctionText
+                    ? "text-[var(--admin-text-muted)]"
+                    : "font-medium text-rose-600"
+                }`}
+              >
+                {correctionText
+                  ? "This message will be shown to the Class Adviser."
+                  : "A correction message is required before returning the form."}
+              </p>
+              <span className="shrink-0 text-[10px] text-[var(--admin-text-muted)]">
+                {remarks.length}/500
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+            <p className="text-xs leading-5 text-amber-800">
+              Returning this form unlocks it for correction. The Class Adviser
+              can edit the form and submit it again for Admin review.
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter className="border-t border-[#eadfd7] bg-white px-6 py-4 sm:px-7">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onCancel}
+            disabled={busy}
+            className="h-10 min-w-28 rounded-xl"
+          >
+            Cancel
+          </Button>
+
+          <Button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy || !correctionText}
+            className="h-10 min-w-44 rounded-xl bg-rose-700 text-white hover:bg-rose-800 disabled:bg-rose-300"
+          >
+            {busy ? (
+              <Loader2 className="mr-2 size-4 animate-spin" />
+            ) : (
+              <RefreshCcw className="mr-2 size-4" />
+            )}
+            {busy ? "Returning..." : "Return for Correction"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SubmittedFormsAdminView({
   onShowAvailable,
   onOpenFullPreview,
@@ -7687,6 +8366,7 @@ function SubmittedFormsAdminView({
   const [selectedSubmission, setSelectedSubmission] =
     useState<SchoolFormSubmissionRow | null>(null);
   const [remarks, setRemarks] = useState("");
+  const [returnCorrectionOpen, setReturnCorrectionOpen] = useState(false);
   const [reviewZoom, setReviewZoom] = useState(75);
   const [busyAction, setBusyAction] = useState<"approved" | "returned" | null>(
     null,
@@ -7858,27 +8538,12 @@ function SubmittedFormsAdminView({
     });
   }, [visibleSubmissions]);
 
-  const reviewSubmission = async (status: "approved" | "returned") => {
+  const submitReviewDecision = async (
+    status: "approved" | "returned",
+  ) => {
     if (!selectedSubmission) return;
 
-    if (status === "returned" && !remarks.trim()) {
-      window.alert(
-        `Please enter the correction needed before returning ${formLabel(
-          selectedSubmission.form_code,
-        )}.`,
-      );
-      return;
-    }
-
-    // Approve immediately with no confirmation popup.
-    // Keep confirmation only when returning a form for correction.
-    if (status === "returned") {
-      const confirmed = window.confirm(
-        `Return ${formLabel(selectedSubmission.form_code)} to the Class Adviser for correction?`,
-      );
-
-      if (!confirmed) return;
-    }
+    if (status === "returned" && !remarks.trim()) return;
 
     setBusyAction(status);
 
@@ -7898,12 +8563,30 @@ function SubmittedFormsAdminView({
       return;
     }
 
+    setReturnCorrectionOpen(false);
     setSelectedSubmission(null);
     setRemarks("");
 
     await queryClient.invalidateQueries({
       queryKey: ["admin-school-form-submissions"],
     });
+  };
+
+  const reviewSubmission = async (status: "approved" | "returned") => {
+    if (!selectedSubmission) return;
+
+    // Every submitted form now uses the same custom Return for Correction UI.
+    if (status === "returned") {
+      setReturnCorrectionOpen(true);
+      return;
+    }
+
+    await submitReviewDecision("approved");
+  };
+
+  const confirmReturnCorrection = async () => {
+    if (!remarks.trim()) return;
+    await submitReviewDecision("returned");
   };
 
   const deleteSubmission = async (submission: SchoolFormSubmissionRow) => {
@@ -7922,6 +8605,7 @@ function SubmittedFormsAdminView({
     }
 
     if (selectedSubmission?.id === submission.id) {
+      setReturnCorrectionOpen(false);
       setSelectedSubmission(null);
       setRemarks("");
       setReviewZoom(75);
@@ -7945,6 +8629,49 @@ function SubmittedFormsAdminView({
       (item) => item.status === "returned",
     ).length,
   };
+
+  if (
+    selectedSubmission &&
+    formLabel(selectedSubmission.form_code) === "SF1"
+  ) {
+    return (
+      <>
+        <Sf1SubmittedReviewWorkspace
+          key={selectedSubmission.id}
+          submission={selectedSubmission}
+          classes={classes}
+          students={students}
+          schoolProfile={schoolProfile}
+          remarks={remarks}
+          setRemarks={setRemarks}
+          reviewZoom={reviewZoom}
+          setReviewZoom={setReviewZoom}
+          busyAction={busyAction}
+          onReview={reviewSubmission}
+          onClose={() => {
+            setReturnCorrectionOpen(false);
+            setReturnCorrectionOpen(false);
+            setSelectedSubmission(null);
+            setRemarks("");
+            setReviewZoom(75);
+          }}
+        />
+
+        <ReturnCorrectionDialog
+          open={returnCorrectionOpen}
+          formName={formLabel(selectedSubmission.form_code)}
+          gradeLevel={selectedSubmission.grade_level || ""}
+          section={selectedSubmission.section || ""}
+          adviserName={selectedSubmission.adviser_name || "Class Adviser"}
+          remarks={remarks}
+          setRemarks={setRemarks}
+          busy={busyAction === "returned"}
+          onCancel={() => setReturnCorrectionOpen(false)}
+          onConfirm={() => void confirmReturnCorrection()}
+        />
+      </>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -8196,7 +8923,11 @@ function SubmittedFormsAdminView({
                                 onClick={() => {
                                   setSelectedSubmission(submission);
                                   setRemarks(submission.admin_remarks || "");
-                                  setReviewZoom(75);
+                                  setReviewZoom(
+                                    formLabel(submission.form_code) === "SF1"
+                                      ? 160
+                                      : 75,
+                                  );
                                 }}
                                 disabled={
                                   deletingSubmissionId === submission.id
@@ -8309,6 +9040,7 @@ function SubmittedFormsAdminView({
         )}
         onOpenChange={(open) => {
           if (!open && !busyAction) {
+            setReturnCorrectionOpen(false);
             setSelectedSubmission(null);
             setRemarks("");
             setReviewZoom(75);
@@ -8343,7 +9075,8 @@ function SubmittedFormsAdminView({
       <Dialog
         open={Boolean(
           selectedSubmission &&
-            formLabel(selectedSubmission.form_code) !== "SF9 (New)",
+            formLabel(selectedSubmission.form_code) !== "SF9 (New)" &&
+            formLabel(selectedSubmission.form_code) !== "SF1",
         )}
         onOpenChange={(open) => {
           if (!open && !busyAction) {
@@ -8540,6 +9273,19 @@ function SubmittedFormsAdminView({
           </div>
         </DialogContent>
       </Dialog>
+
+      <ReturnCorrectionDialog
+        open={returnCorrectionOpen && Boolean(selectedSubmission)}
+        formName={formLabel(selectedSubmission?.form_code)}
+        gradeLevel={selectedSubmission?.grade_level || ""}
+        section={selectedSubmission?.section || ""}
+        adviserName={selectedSubmission?.adviser_name || "Class Adviser"}
+        remarks={remarks}
+        setRemarks={setRemarks}
+        busy={busyAction === "returned"}
+        onCancel={() => setReturnCorrectionOpen(false)}
+        onConfirm={() => void confirmReturnCorrection()}
+      />
     </div>
   );
 }
@@ -10860,9 +11606,12 @@ function SchoolFormsSection({
         (item) => normalizeAdminSf9Subject(item.subject) === normalizeAdminSf9Subject(subject),
       );
       const numericUnits = Number(matchingClass?.units);
-      const units = matchingClass?.units != null && Number.isFinite(numericUnits)
-        ? numericUnits
-        : null;
+      // Grade 12 no longer uses Units. Keep Grade 11 behavior unchanged.
+      const units = isGrade12
+        ? null
+        : matchingClass?.units != null && Number.isFinite(numericUnits)
+          ? numericUnits
+          : null;
 
       return {
         subject,
@@ -11307,6 +12056,8 @@ function SchoolFormsSection({
           schoolProfile?.principal ||
           selectedTeacherProfile?.principal ||
           "School Head",
+        startDate: formatAdminSf1SchoolDate(selectedClass.start_date),
+        endDate: formatAdminSf1SchoolDate(selectedClass.end_date),
         male: sf1Metrics.male,
         female: [...sf1Metrics.female, ...sf1Metrics.unspecified],
       });
@@ -18154,6 +18905,12 @@ function SchoolFormsSection({
                                 selectedTeacherProfile?.principal ||
                                 "School Head"
                               }
+                              startDate={formatAdminSf1SchoolDate(
+                                selectedClass.start_date,
+                              )}
+                              endDate={formatAdminSf1SchoolDate(
+                                selectedClass.end_date,
+                              )}
                               male={sf1Metrics.male}
                               female={[
                                 ...sf1Metrics.female,

@@ -43,6 +43,16 @@ type SF1StudentRow = StudentRow & {
   guardian_relationship?: string | null;
   learning_modality?: string | null;
   remarks?: string | null;
+
+  // Transfer In / Transfer Out state used by the SF1 BoSY/EoSY summary.
+  enrollment_status?: "active" | "transferred_in" | "transferred_out" | string | null;
+  is_active?: boolean | null;
+  transfer_date?: string | null;
+  transfer_effective_term?: string | null;
+  previous_school?: string | null;
+  destination_school?: string | null;
+  transfer_reason?: string | null;
+  transferred_at?: string | null;
 };
 
 type SF1ExcelOptions = {
@@ -189,6 +199,97 @@ function formatSF1SchoolDate(value?: string | null) {
 
 function sf1DateLine(label: "BoSY Date:" | "EoSY Date:", value: string) {
   return value ? `${label} ${value}` : label;
+}
+
+type SF1RegistrationCount = {
+  male: number;
+  female: number;
+  total: number;
+};
+
+type SF1RegistrationSummary = {
+  bosy: SF1RegistrationCount;
+  eosy: SF1RegistrationCount;
+  transferIn: SF1RegistrationCount;
+  transferOut: SF1RegistrationCount;
+};
+
+function sf1TransferStatus(
+  student: Pick<
+    SF1StudentRow,
+    "enrollment_status" | "previous_school"
+  >,
+): "in" | "out" | "none" {
+  const status = String(student.enrollment_status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
+  if (status === "transferred_out" || status === "transfer_out") {
+    return "out";
+  }
+
+  if (
+    status === "transferred_in" ||
+    status === "transfer_in" ||
+    Boolean(String(student.previous_school ?? "").trim())
+  ) {
+    return "in";
+  }
+
+  return "none";
+}
+
+function sf1CountLearners(
+  learners: readonly SF1StudentRow[],
+): SF1RegistrationCount {
+  const male = learners.filter(
+    (student) => String(student.sex ?? "").trim().toLowerCase() === "male",
+  ).length;
+  const female = learners.filter(
+    (student) => String(student.sex ?? "").trim().toLowerCase() === "female",
+  ).length;
+
+  return {
+    male,
+    female,
+    total: learners.length,
+  };
+}
+
+function buildSF1RegistrationSummary(
+  learners: readonly SF1StudentRow[],
+): SF1RegistrationSummary {
+  const transferInLearners = learners.filter(
+    (student) => sf1TransferStatus(student) === "in",
+  );
+  const transferOutLearners = learners.filter(
+    (student) => sf1TransferStatus(student) === "out",
+  );
+
+  // A learner who has previous_school was a Transfer In learner even if the
+  // current status later becomes transferred_out. Such a learner was never
+  // part of this class's BoSY count.
+  const bosyLearners = learners.filter((student) => {
+    const status = sf1TransferStatus(student);
+    const cameFromAnotherSchool = Boolean(
+      String(student.previous_school ?? "").trim(),
+    );
+
+    return status !== "in" && !cameFromAnotherSchool;
+  });
+
+  // EoSY is the final roster: original learners + Transfer In - Transfer Out.
+  const eosyLearners = learners.filter(
+    (student) => sf1TransferStatus(student) !== "out",
+  );
+
+  return {
+    bosy: sf1CountLearners(bosyLearners),
+    eosy: sf1CountLearners(eosyLearners),
+    transferIn: sf1CountLearners(transferInLearners),
+    transferOut: sf1CountLearners(transferOutLearners),
+  };
 }
 
 function setTableRow(
@@ -411,7 +512,7 @@ function addLegendAndSignatures(
   worksheet: Worksheet,
   startRow: number,
   options: SF1ExcelOptions,
-  counts: { male: number; female: number; total: number },
+  counts: SF1RegistrationSummary,
 ) {
   const headingRow = startRow;
   const columnHeadingRow = startRow + 1;
@@ -498,27 +599,50 @@ function addLegendAndSignatures(
   });
 
   const registrationRows = [
-    [contentStartRow, contentStartRow + 2, "MALE", counts.male],
-    [contentStartRow + 3, contentStartRow + 4, "FEMALE", counts.female],
-    [contentStartRow + 5, contentEndRow, "TOTAL", counts.total],
+    [
+      contentStartRow,
+      contentStartRow + 2,
+      "MALE",
+      counts.bosy.male,
+      counts.eosy.male,
+    ],
+    [
+      contentStartRow + 3,
+      contentStartRow + 4,
+      "FEMALE",
+      counts.bosy.female,
+      counts.eosy.female,
+    ],
+    [
+      contentStartRow + 5,
+      contentEndRow,
+      "TOTAL",
+      counts.bosy.total,
+      counts.eosy.total,
+    ],
   ] as const;
 
-  registrationRows.forEach(([fromRow, toRow, label, value]) => {
-    mergeAndSet(worksheet, `V${fromRow}:W${toRow}`, label, {
-      font: { size: 7, bold: true },
-      alignment: CENTERED,
-      border: tableBorder(),
-    });
-    mergeAndSet(worksheet, `X${fromRow}:Z${toRow}`, value, {
-      font: { size: 7, bold: true },
-      alignment: CENTERED,
-      border: tableBorder(),
-      numberFormat: "0",
-    });
-    mergeAndSet(worksheet, `AA${fromRow}:AB${toRow}`, "", {
-      border: tableBorder(),
-    });
-  });
+  registrationRows.forEach(
+    ([fromRow, toRow, label, bosyValue, eosyValue]) => {
+      mergeAndSet(worksheet, `V${fromRow}:W${toRow}`, label, {
+        font: { size: 7, bold: true },
+        alignment: CENTERED,
+        border: tableBorder(),
+      });
+      mergeAndSet(worksheet, `X${fromRow}:Z${toRow}`, bosyValue, {
+        font: { size: 7, bold: true },
+        alignment: CENTERED,
+        border: tableBorder(),
+        numberFormat: "0",
+      });
+      mergeAndSet(worksheet, `AA${fromRow}:AB${toRow}`, eosyValue, {
+        font: { size: 7, bold: true },
+        alignment: CENTERED,
+        border: tableBorder(),
+        numberFormat: "0",
+      });
+    },
+  );
 
   mergeAndSet(
     worksheet,
@@ -1028,6 +1152,8 @@ function legacyCellUpdate(
 }
 
 function buildSF1LegacyCellUpdates(options: SF1ExcelOptions) {
+  const registration = buildSF1RegistrationSummary(options.learners);
+
   const male = options.learners.filter(
     (student) => student.sex?.toLowerCase() === "male",
   );
@@ -1084,9 +1210,13 @@ function buildSF1LegacyCellUpdates(options: SF1ExcelOptions) {
     legacyCellUpdate("A27", male.length),
     legacyCellUpdate("A46", femaleAndUnspecified.length),
     legacyCellUpdate("A47", options.learners.length),
-    legacyCellUpdate("X50", male.length),
-    legacyCellUpdate("X53", femaleAndUnspecified.length),
-    legacyCellUpdate("X55", options.learners.length),
+    // REGISTERED summary: BoSY and EoSY.
+    legacyCellUpdate("X50", registration.bosy.male),
+    legacyCellUpdate("X53", registration.bosy.female),
+    legacyCellUpdate("X55", registration.bosy.total),
+    legacyCellUpdate("AA50", registration.eosy.male),
+    legacyCellUpdate("AA53", registration.eosy.female),
+    legacyCellUpdate("AA55", registration.eosy.total),
     legacyCellUpdate("AE50", options.adviser.toUpperCase()),
     legacyCellUpdate("AN50", options.schoolHead.toUpperCase()),
     // Use the E-Class Record class dates in the original SF1 footer.
@@ -1641,14 +1771,22 @@ async function downloadSF1Word(options: SF1ExcelOptions) {
     );
   }
 
+  const registration = buildSF1RegistrationSummary(options.learners);
   const counts = [
-    male.length,
-    femaleAndUnspecified.length,
-    options.learners.length,
-  ];
-  counts.forEach((count, index) => {
-    setWordCellText(requireWordCell(registrationTable, index + 1, 1), count);
-    setWordCellText(requireWordCell(registrationTable, index + 1, 2), "");
+    [registration.bosy.male, registration.eosy.male],
+    [registration.bosy.female, registration.eosy.female],
+    [registration.bosy.total, registration.eosy.total],
+  ] as const;
+
+  counts.forEach(([bosyCount, eosyCount], index) => {
+    setWordCellText(
+      requireWordCell(registrationTable, index + 1, 1),
+      bosyCount,
+    );
+    setWordCellText(
+      requireWordCell(registrationTable, index + 1, 2),
+      eosyCount,
+    );
   });
 
   const generatedText = `Generated on: ${new Intl.DateTimeFormat("en-US", {
@@ -1820,6 +1958,11 @@ function SF1Page() {
       learners.filter(
         (student) => student.sex !== "male" && student.sex !== "female",
       ),
+    [learners],
+  );
+
+  const registrationSummary = useMemo(
+    () => buildSF1RegistrationSummary(learners),
     [learners],
   );
 
@@ -2373,18 +2516,30 @@ function SF1Page() {
               <tbody>
                 <tr>
                   <th className={headerCell}>MALE</th>
-                  <td className={borderCell}>{male.length}</td>
-                  <td className={borderCell} />
+                  <td className={borderCell}>
+                    {registrationSummary.bosy.male}
+                  </td>
+                  <td className={borderCell}>
+                    {registrationSummary.eosy.male}
+                  </td>
                 </tr>
                 <tr>
                   <th className={headerCell}>FEMALE</th>
-                  <td className={borderCell}>{female.length}</td>
-                  <td className={borderCell} />
+                  <td className={borderCell}>
+                    {registrationSummary.bosy.female}
+                  </td>
+                  <td className={borderCell}>
+                    {registrationSummary.eosy.female}
+                  </td>
                 </tr>
                 <tr>
                   <th className={headerCell}>TOTAL</th>
-                  <td className={borderCell}>{learners.length}</td>
-                  <td className={borderCell} />
+                  <td className={borderCell}>
+                    {registrationSummary.bosy.total}
+                  </td>
+                  <td className={borderCell}>
+                    {registrationSummary.eosy.total}
+                  </td>
                 </tr>
               </tbody>
             </table>

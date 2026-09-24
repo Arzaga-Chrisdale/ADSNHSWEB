@@ -201,8 +201,10 @@ const SUBJECTS_BY_GRADE: Record<string, readonly string[]> = {
 };
 
 const UNITS_BY_GRADE: Record<string, readonly string[]> = {
+  // Grade 11 keeps the required Units selector.
+  // Grade 12 intentionally has no Units selector. Its Subject is entered
+  // manually and SF9 leaves the Units cells blank.
   "Grade 11": ["2", "3", "6"],
-  "Grade 12": ["3", "none"],
 };
 
 const emptyClassForm = {
@@ -690,12 +692,18 @@ function Dashboard() {
       const allowedSchoolYear = await resolveAllowedSchoolYear(
         activeSchoolYear ?? form.school_year,
       );
+      // Grade 12 classes do not use Units. Even if an old form value is
+      // still present in state, always save Grade 12 units as null.
       const units =
-        form.units && form.units !== "none" ? Number(form.units) : null;
+        form.grade_level === "Grade 12"
+          ? null
+          : form.units && form.units !== "none"
+            ? Number(form.units)
+            : null;
       const { error } = await supabase.from("classes").insert({
-        subject: form.subject,
+        subject: form.subject.trim(),
         grade_level: form.grade_level,
-        section: form.section,
+        section: form.section.trim(),
         school_year: allowedSchoolYear,
         units,
         teacher_id,
@@ -826,37 +834,56 @@ function Dashboard() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Subject</Label>
-                  <Select
-                    value={form.subject || undefined}
-                    onValueChange={(v) => setForm({ ...form, subject: v })}
-                    disabled={!form.grade_level}
-                  >
-                    <SelectTrigger>
-                      <SelectValue
-                        placeholder={
-                          form.grade_level
-                            ? "-- Select Subject --"
-                            : "-- Select Grade First --"
-                        }
-                      />
-                    </SelectTrigger>
-                    <SelectContent
-                      position="popper"
-                      side="bottom"
-                      align="start"
-                      sideOffset={4}
-                      avoidCollisions={false}
-                      className="max-h-72 overflow-y-auto"
+
+                  {form.grade_level === "Grade 12" ? (
+                    <Input
+                      value={form.subject}
+                      onChange={(e) =>
+                        setForm((current) => ({
+                          ...current,
+                          subject: e.target.value,
+                        }))
+                      }
+                      placeholder="Enter subject"
+                    />
+                  ) : (
+                    <Select
+                      value={form.subject || undefined}
+                      onValueChange={(v) =>
+                        setForm((current) => ({
+                          ...current,
+                          subject: v,
+                        }))
+                      }
+                      disabled={!form.grade_level}
                     >
-                      {(SUBJECTS_BY_GRADE[form.grade_level] ?? []).map(
-                        (sub) => (
-                          <SelectItem key={sub} value={sub}>
-                            {sub}
-                          </SelectItem>
-                        ),
-                      )}
-                    </SelectContent>
-                  </Select>
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            form.grade_level
+                              ? "-- Select Subject --"
+                              : "-- Select Grade First --"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent
+                        position="popper"
+                        side="bottom"
+                        align="start"
+                        sideOffset={4}
+                        avoidCollisions={false}
+                        className="max-h-72 overflow-y-auto"
+                      >
+                        {(SUBJECTS_BY_GRADE[form.grade_level] ?? []).map(
+                          (sub) => (
+                            <SelectItem key={sub} value={sub}>
+                              {sub}
+                            </SelectItem>
+                          ),
+                        )}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
                 <div>
                   <Label>Section</Label>
@@ -933,10 +960,10 @@ function Dashboard() {
               <Button
                 onClick={() => createClass.mutate()}
                 disabled={
-                  !form.subject ||
-                  !form.section ||
+                  !form.subject.trim() ||
+                  !form.section.trim() ||
                   !(activeSchoolYear || form.school_year) ||
-                  (Boolean(UNITS_BY_GRADE[form.grade_level]) && !form.units) ||
+                  (form.grade_level === "Grade 11" && !form.units) ||
                   createClass.isPending
                 }
                 title={
@@ -1001,7 +1028,9 @@ function Dashboard() {
                       </div>
                       <div className="mt-0.5 truncate text-sm text-foreground/65">
                         {c.grade_level} · {c.section} · {c.school_year}
-                        {c.units != null ? ` · ${c.units} Units` : ""}
+                        {c.grade_level !== "Grade 12" && c.units != null
+                          ? ` · ${c.units} Units`
+                          : ""}
                       </div>
                     </div>
                   </Link>

@@ -1202,6 +1202,7 @@ function SOGPage() {
   const [perSubjectOpen, setPerSubjectOpen] = useState(false);
   const [perSubjectPick, setPerSubjectPick] = useState<string>("");
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [selectedAnalyticsSubject, setSelectedAnalyticsSubject] = useState("");
 
   useEffect(() => {
     if (!analyticsOpen) return;
@@ -2102,6 +2103,48 @@ function SOGPage() {
     term,
   ]);
 
+  // The teacher's Analytics dropdown follows the subject columns currently
+  // displayed in Summary of Grades, including imported subject grades and
+  // Grade 11 virtual elective labels. Admin's class analytics is unchanged.
+  const analyticsSubjectOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return displayedSubjects.filter((name) => {
+      const key = normalizeText(name);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [displayedSubjects]);
+
+  const defaultAnalyticsSubject =
+    analyticsSubjectOptions.find(
+      (name) => normalizeText(name) === normalizeText(klass?.subject),
+    ) ?? analyticsSubjectOptions[0] ?? "";
+
+  useEffect(() => {
+    setSelectedAnalyticsSubject((current) =>
+      analyticsSubjectOptions.includes(current) ? current : defaultAnalyticsSubject,
+    );
+  }, [analyticsSubjectOptions, defaultAnalyticsSubject]);
+
+  const activeAnalyticsSubject = analyticsSubjectOptions.includes(
+    selectedAnalyticsSubject,
+  )
+    ? selectedAnalyticsSubject
+    : defaultAnalyticsSubject;
+
+  const analyticsIsOwnSubject =
+    normalizeText(activeAnalyticsSubject) === normalizeText(klass?.subject);
+
+  // Other subjects on this class's SOG may be imported final grades only.
+  // Do not use the current class's component scores to forecast another subject.
+  const analyticsCanUseOwnComponents =
+    analyticsIsOwnSubject &&
+    !isCommunicationClass &&
+    !isGrade11ElectiveClass &&
+    !isGrade12SummaryClass;
+  const analyticsUsesSummaryGrades = !analyticsCanUseOwnComponents;
+
   const reorderSubjects = (source: string, target: string) => {
     if (!source || !target || source === target) return;
 
@@ -2702,6 +2745,72 @@ function SOGPage() {
       )?.score ?? null
     );
   };
+
+  // Use this exact subject's own saved Summary grades when its matching
+  // E-Class Record components are not in the selected class.
+  const analyticsSummarySubjectGrades = useMemo(() => {
+    if (!analyticsUsesSummaryGrades || !activeAnalyticsSubject) {
+      return undefined;
+    }
+
+    return Object.fromEntries(
+      students.map((student) => {
+        const computedFinal = scoreForTerm(
+          student.id,
+          activeAnalyticsSubject,
+          "final",
+        );
+        // An imported subject can have only a submitted FINAL row rather
+        // than separate T1/T2/T3 rows. Use its own saved final score as an
+        // analytics-only fallback. Never borrow another subject's scores.
+        const savedFinal = grades.find(
+          (row) =>
+            row.student_id === student.id &&
+            normalizeText(row.subject) === normalizeText(activeAnalyticsSubject) &&
+            row.term === "final",
+        )?.score;
+        const finalGrade =
+          computedFinal != null
+            ? computedFinal
+            : savedFinal != null && Number.isFinite(Number(savedFinal))
+              ? Number(savedFinal)
+              : null;
+
+        return [
+          student.id,
+          {
+            "1": scoreForTerm(student.id, activeAnalyticsSubject, "1"),
+            "2": scoreForTerm(student.id, activeAnalyticsSubject, "2"),
+            "3": scoreForTerm(student.id, activeAnalyticsSubject, "3"),
+            final: finalGrade,
+          },
+        ];
+      }),
+    ) as Record<
+      string,
+      Record<SummaryGradeTerm, number | null>
+    >;
+  }, [
+    students,
+    activeAnalyticsSubject,
+    analyticsUsesSummaryGrades,
+    grades,
+    klass?.subject,
+    isMapehClass,
+    mapehSubjectName,
+    mapehActivities,
+    mapehComponents,
+    mapehScoreMap,
+    mapehSavedBaseMap,
+    isCommunicationClass,
+    communicationSubjectName,
+    communicationActivities,
+    communicationComponents,
+    communicationScoreMap,
+    communicationSavedBaseMap,
+    isGrade11ElectiveClass,
+    isGrade12SummaryClass,
+  ]);
 
   const scoreFor = (studentId: string, subjectName: string) =>
     scoreForTerm(studentId, subjectName, term as SummaryGradeTerm);
@@ -4100,7 +4209,10 @@ function SOGPage() {
                     </h2>
                     <p className="truncate text-xs text-[#8a756b]">
                       {formatGradeLevel(klass.grade_level)} · {klass.section || "—"} ·{" "}
-                      {klass.subject || "—"}
+                      {activeAnalyticsSubject || "—"}
+                    </p>
+                    <p className="mt-0.5 hidden text-[10px] text-emerald-700 sm:block">
+                      Term 1 + Term 2 → Gaussian Naive Bayes → Term 3 proficiency forecast
                     </p>
                   </div>
                 </div>
@@ -4119,10 +4231,14 @@ function SOGPage() {
 
             <div className="min-h-0 flex-1 overflow-y-auto bg-[#fffaf3] p-3 sm:p-4">
               <AnalyticsInsightsPanel
-                key={`${active}-${klass.subject ?? ""}`}
+                key={active}
                 classId={active}
                 students={students}
-                subject={klass.subject ?? ""}
+                subject={activeAnalyticsSubject}
+                subjectOptions={analyticsSubjectOptions}
+                onSubjectChange={setSelectedAnalyticsSubject}
+                summarySubjectGrades={analyticsSummarySubjectGrades}
+                allowComponentForecast={analyticsCanUseOwnComponents}
                 initialTerm={
                   term === "1" || term === "2" || term === "3" || term === "final"
                     ? term

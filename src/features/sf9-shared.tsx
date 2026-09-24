@@ -2889,19 +2889,8 @@ function makeSF9Component(variant: Variant) {
       return scores.length ? computeAverage(scores) : null;
     };
 
-    const grade12UnitsForSubject = (subject: string): number | null => {
-      const targetSubject = normalizeSf9SubjectKey(subject);
-      const matchingClass = matchingGrade12Classes.find(
-        (candidate) =>
-          normalizeSf9SubjectKey(candidate.subject) === targetSubject,
-      );
-
-      if (matchingClass?.units == null) return null;
-
-      const numericUnits = Number(matchingClass.units);
-      return Number.isFinite(numericUnits) ? numericUnits : null;
-    };
-
+    // Grade 12 SF9 keeps the official Units column in the template,
+    // but the system no longer assigns or displays units for Grade 12.
     const buildGrade12RowsForLearner = (
       learnerId: string,
     ): Sf9Grade12PreviewRow[] =>
@@ -2912,7 +2901,7 @@ function makeSF9Component(variant: Variant) {
           subject.label,
           subject.term,
         ),
-        units: grade12UnitsForSubject(subject.label),
+        units: null,
       }));
 
     // SF9 is generated for one learner only. Nothing is previewed or
@@ -3188,10 +3177,12 @@ function makeSF9Component(variant: Variant) {
                 `H${excelRow}`,
                 row.term3,
               );
-              setXlsxCellValue(
+              // Grade 12 does not use Units. Keep the official Units column
+              // but always leave its cell blank in the exported SF9.
+              setXlsxCellText(
                 worksheetDocument,
                 `I${excelRow}`,
-                row.units,
+                "",
               );
               setXlsxCellValue(
                 worksheetDocument,
