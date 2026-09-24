@@ -4339,6 +4339,8 @@ function AdminDashboardPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [deleteProfileCandidate, setDeleteProfileCandidate] =
     useState<ProfileRow | null>(null);
+  // Keep server-side deletion errors inside the existing confirmation modal.
+  const [deleteUserError, setDeleteUserError] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery<AdminData>({
     queryKey: ["admin-dashboard-data"],
@@ -4479,26 +4481,59 @@ function AdminDashboardPage() {
   };
 
   const deleteProfile = async (profile: ProfileRow) => {
+    // Auth users and dependent data must be deleted by the protected database
+    // RPC. A browser-side delete cannot safely resolve database foreign keys.
+    if (busyId) return;
+
     if (profile.id === data?.currentUserId) {
-      window.alert(
+      setDeleteUserError(
         "You cannot delete the administrator account that is currently signed in.",
       );
       return;
     }
 
+    setDeleteUserError(null);
     setBusyId(profile.id);
-    const { error: deleteError } = await supabase.rpc("admin_delete_user", {
-      target_user_id: profile.id,
-    });
-    setBusyId(null);
 
-    if (deleteError) {
-      window.alert(deleteError.message);
-      return;
+    let deleted = false;
+    try {
+      const { error: deleteError } = await supabase.rpc("admin_delete_user", {
+        target_user_id: profile.id,
+      });
+      if (deleteError) {
+        const missingDatabaseFix =
+          /grade_request_history.*batch_id|batch_id.*grade_request_history/i.test(
+            deleteError.message,
+          );
+        setDeleteUserError(
+          missingDatabaseFix
+            ? "The database's Grade Request history constraint is preventing deletion. First run 20260924000000_fix_admin_delete_teacher_user.sql in the Supabase SQL Editor, then try again. The delete was not completed."
+            : deleteError.message,
+        );
+        return;
+      }
+
+      deleted = true;
+      setDeleteProfileCandidate(null);
+      setDeleteUserError(null);
+    } catch (error) {
+      setDeleteUserError(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete this user. Check your database function and try again.",
+      );
+    } finally {
+      setBusyId(null);
     }
 
-    setDeleteProfileCandidate(null);
-    await refreshData();
+    // A failed dashboard refresh should not be reported as a failed deletion.
+    if (deleted) {
+      try {
+        await refreshData();
+      } catch (refreshError) {
+        console.warn("User deleted, but the Admin list could not refresh:", refreshError);
+      }
+    }
   };
 
   const deleteStudent = async (student: StudentRow) => {
@@ -4636,7 +4671,10 @@ function AdminDashboardPage() {
               busyId={busyId}
               onAdd={() => setCreateUserOpen(true)}
               onEdit={setEditingProfile}
-              onDelete={setDeleteProfileCandidate}
+              onDelete={(profile) => {
+                setDeleteUserError(null);
+                setDeleteProfileCandidate(profile);
+              }}
             />
           )}
 
@@ -4723,7 +4761,10 @@ function AdminDashboardPage() {
       <Dialog
         open={Boolean(deleteProfileCandidate)}
         onOpenChange={(open) => {
-          if (!open && !busyId) setDeleteProfileCandidate(null);
+          if (!open && !busyId) {
+            setDeleteProfileCandidate(null);
+            setDeleteUserError(null);
+          }
         }}
       >
         <DialogContent className="w-[calc(100%-2rem)] max-w-[520px] gap-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-2xl">
@@ -4762,6 +4803,15 @@ function AdminDashboardPage() {
                 </p>
               </div>
             </div>
+
+            {deleteUserError && (
+              <div
+                role="alert"
+                className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-5 text-red-800"
+              >
+                {deleteUserError}
+              </div>
+            )}
           </div>
 
           <DialogFooter className="border-t border-slate-200 bg-white px-8 py-5 sm:space-x-3">
@@ -4769,7 +4819,10 @@ function AdminDashboardPage() {
               type="button"
               variant="outline"
               disabled={Boolean(busyId)}
-              onClick={() => setDeleteProfileCandidate(null)}
+              onClick={() => {
+                setDeleteProfileCandidate(null);
+                setDeleteUserError(null);
+              }}
               className="h-11 rounded-lg px-5 text-sm font-semibold"
             >
               Cancel
