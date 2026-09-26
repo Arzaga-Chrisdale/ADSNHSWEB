@@ -4327,6 +4327,8 @@ function AdminDashboardPage() {
     onlineCount: onlineAdminCount,
     maxAdmins: maxOnlineAdmins,
     onlineAdminIds,
+    isPending: isAdminPresencePending,
+    isError: isAdminPresenceError,
   } = useAdminOnlineStatus();
   const [activeSection, setActiveSection] = useState<AdminSection>("dashboard");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -4418,6 +4420,33 @@ function AdminDashboardPage() {
       };
     },
   });
+
+  // Class Adviser and Subject Teacher presence comes from the same
+  // active_account_sessions heartbeats already used by the teacher app.
+  // The admin-only RPC safely exposes just the IDs of currently active teachers;
+  // the existing Admin presence/three-admin limit remains unchanged.
+  const {
+    data: onlineTeacherRows,
+    isPending: isTeacherPresencePending,
+    isError: isTeacherPresenceError,
+  } = useQuery<Array<{ user_id: string }>>({
+    queryKey: ["admin-online-teacher-ids"],
+    queryFn: async () => {
+      const { data: rows, error: presenceError } = await (supabase as any)
+        .rpc("get_online_teacher_ids");
+      if (presenceError) throw presenceError;
+      return (rows ?? []) as Array<{ user_id: string }>;
+    },
+    enabled: data?.isAdmin === true && activeSection === "users",
+    refetchInterval: 5_000,
+    refetchOnWindowFocus: true,
+    staleTime: 2_000,
+  });
+
+  const onlineTeacherIds = useMemo(
+    () => new Set((onlineTeacherRows ?? []).map((row) => row.user_id)),
+    [onlineTeacherRows],
+  );
 
   const profiles = data?.profiles ?? EMPTY_PROFILES;
   const roles = data?.roles ?? EMPTY_ROLES;
@@ -4537,22 +4566,66 @@ function AdminDashboardPage() {
   };
 
   const deleteStudent = async (student: StudentRow) => {
-    const confirmed = window.confirm(`Delete learner ${studentName(student)}?`);
+    if (busyId) return;
+
+    // Transfer In / Transfer Out learners have student_transfers history.
+    // The database RPC deletes that history and the learner together in one
+    // transaction, after verifying that the caller is an administrator.
+    const confirmed = window.confirm(
+      `Permanently delete learner ${studentName(student)}?\n\n` +
+        "This will also delete this learner's Transfer In / Transfer Out " +
+        "history and any learner records configured to cascade. " +
+        "This action cannot be undone.",
+    );
     if (!confirmed) return;
 
     setBusyId(student.id);
-    const { error: deleteError } = await supabase
-      .from("students")
-      .delete()
-      .eq("id", student.id);
-    setBusyId(null);
+    let deleted = false;
 
-    if (deleteError) {
-      window.alert(deleteError.message);
-      return;
+    try {
+      const { error: deleteError } = await (supabase as any).rpc(
+        "admin_delete_student",
+        { p_student_id: student.id },
+      );
+
+      if (deleteError) {
+        const missingMigration =
+          deleteError.code === "PGRST202" ||
+          /admin_delete_student.*(not found|does not exist)/i.test(
+            deleteError.message ?? "",
+          );
+        window.alert(
+          missingMigration
+            ? "The learner-deletion database update has not been applied. " +
+                "Run 20260924030000_fix_admin_delete_transferred_students.sql " +
+                "in Supabase, then try again. No learner was deleted."
+            : deleteError.message,
+        );
+        return;
+      }
+
+      deleted = true;
+    } catch (deleteError) {
+      window.alert(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "The learner could not be deleted. Please try again.",
+      );
+    } finally {
+      setBusyId(null);
     }
 
-    await refreshData();
+    if (deleted) {
+      try {
+        await refreshData();
+        await queryClient.invalidateQueries({ queryKey: ["student-transfers"] });
+      } catch (refreshError) {
+        console.warn(
+          "Learner deleted, but the Admin/Transfer list could not refresh:",
+          refreshError,
+        );
+      }
+    }
   };
 
   const reviewCredentialRequest = async (
@@ -4668,6 +4741,13 @@ function AdminDashboardPage() {
               onlineAdminCount={onlineAdminCount}
               maxOnlineAdmins={maxOnlineAdmins}
               onlineAdminIds={onlineAdminIds}
+              onlineTeacherIds={onlineTeacherIds}
+              adminPresenceUnavailable={
+                isAdminPresencePending || isAdminPresenceError
+              }
+              teacherPresenceUnavailable={
+                isTeacherPresencePending || isTeacherPresenceError
+              }
               busyId={busyId}
               onAdd={() => setCreateUserOpen(true)}
               onEdit={setEditingProfile}
@@ -6461,6 +6541,9 @@ function UsersSection({
   onlineAdminCount,
   maxOnlineAdmins,
   onlineAdminIds,
+  onlineTeacherIds,
+  adminPresenceUnavailable,
+  teacherPresenceUnavailable,
   busyId,
   onAdd,
   onEdit,
@@ -6476,6 +6559,9 @@ function UsersSection({
   onlineAdminCount: number;
   maxOnlineAdmins: number;
   onlineAdminIds: Set<string>;
+  onlineTeacherIds: Set<string>;
+  adminPresenceUnavailable: boolean;
+  teacherPresenceUnavailable: boolean;
   busyId: string | null;
   onAdd: () => void;
   onEdit: (profile: ProfileRow) => void;
@@ -6596,8 +6682,12 @@ function UsersSection({
               const role = adminUserRoleLabel(profile, roleByUserId);
               const isAdministrator =
                 normalize(roleByUserId.get(profile.id)) === "admin";
-              const isOnlineAdmin =
-                isAdministrator && onlineAdminIds.has(profile.id);
+              const isOnline = isAdministrator
+                ? onlineAdminIds.has(profile.id)
+                : onlineTeacherIds.has(profile.id);
+              const presenceUnavailable = isAdministrator
+                ? adminPresenceUnavailable
+                : teacherPresenceUnavailable;
 
               return (
                 <tr
@@ -6612,16 +6702,19 @@ function UsersSection({
                   </Td>
                   <Td>{formatDate(profile.created_at)}</Td>
                   <Td>
-                    {isAdministrator ? (
-                      isOnlineAdmin ? (
-                        <StatusBadge>Online</StatusBadge>
-                      ) : (
-                        <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[8px] font-semibold text-slate-600">
-                          Offline
-                        </span>
-                      )
+                    {presenceUnavailable ? (
+                      <span
+                        className="inline-flex rounded-full bg-amber-50 px-2 py-1 text-[8px] font-semibold text-amber-700"
+                        title="Live account status is not currently available."
+                      >
+                        Unavailable
+                      </span>
+                    ) : isOnline ? (
+                      <StatusBadge>Online</StatusBadge>
                     ) : (
-                      <StatusBadge>Registered</StatusBadge>
+                      <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[8px] font-semibold text-slate-600">
+                        Offline
+                      </span>
                     )}
                   </Td>
                   <Td align="right">
