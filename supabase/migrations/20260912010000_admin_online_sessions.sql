@@ -1,28 +1,14 @@
 -- ============================================================
--- SIGLA: MERGED Admin sessions + All Teachers/Users online status
+-- Admin online presence + maximum 3 active Admin accounts.
 --
--- Keeps ALL existing Admin presence features:
---   * Class Adviser / Subject Teacher duplicate-device rules remain unchanged.
---   * Up to 3 DISTINCT Admin accounts can be online simultaneously.
---   * The same Admin can open additional devices without consuming a slot.
---   * The 4th distinct Admin is refused Admin-panel access.
---   * Admin presence expires after 90 seconds without a heartbeat.
---
--- Adds:
---   * Admin-only RPC returning online Class Adviser and Subject Teacher IDs.
---   * Uses the existing teacher active_account_sessions heartbeat, not
---     the Admin presence table, and never changes teacher device rules.
---
--- Apply as a single SQL migration IF the original Admin presence migration
--- has NOT already been applied. If it HAS already been applied, use the
--- smaller add-only migration provided separately instead.
--- Safe to rerun on a compatible existing SIGLA schema.
--- ============================================================
-
-begin;
-
--- ============================================================
--- 1) ORIGINAL: Admin presence table, indexes, and SELECT RLS policy
+-- Behavior:
+--   * Class Adviser / Subject Teacher duplicate-device notice is unchanged.
+--   * Admin accounts use this separate presence table.
+--   * Up to 3 DISTINCT Admin accounts may be online at the same time.
+--   * A 4th Admin account is refused Admin-panel access.
+--   * The same already-online Admin may refresh/open another browser/device
+--     without consuming another Admin slot.
+--   * Presence expires automatically after 90 seconds without a heartbeat.
 -- ============================================================
 
 create table if not exists public.admin_active_sessions (
@@ -66,11 +52,7 @@ using (
 );
 
 -- Direct INSERT / UPDATE / DELETE access is intentionally not granted.
--- Admin presence changes go through the SECURITY DEFINER RPCs below.
-
--- ============================================================
--- 2) ORIGINAL: Claim Admin session, enforce 3 DISTINCT Admin limit
--- ============================================================
+-- Presence changes go through the SECURITY DEFINER functions below.
 
 create or replace function public.claim_admin_session(
   p_device_id text,
@@ -175,9 +157,6 @@ revoke all on function public.claim_admin_session(text, text, text)
 grant execute on function public.claim_admin_session(text, text, text)
   to authenticated;
 
--- ============================================================
--- 3) ORIGINAL: Release an Admin device session
--- ============================================================
 
 create or replace function public.release_admin_session(
   p_device_id text
@@ -206,9 +185,6 @@ revoke all on function public.release_admin_session(text)
 grant execute on function public.release_admin_session(text)
   to authenticated;
 
--- ============================================================
--- 4) ORIGINAL: Retrieve online Admins (including public profile fields)
--- ============================================================
 
 create or replace function public.get_online_admins()
 returns table (
@@ -269,47 +245,5 @@ revoke all on function public.get_online_admins()
 
 grant execute on function public.get_online_admins()
   to authenticated;
-
--- ============================================================
--- 5) NEW: Online Class Adviser / Subject Teacher IDs for Admin UI
--- ============================================================
--- Uses the EXISTING teacher heartbeat table. It does not modify or grant
--- client access to teacher sessions. Return IDs only to verified Admins.
--- The role check matches the existing Admin presence RPCs above.
-
-create or replace function public.get_online_teacher_ids()
-returns table (user_id uuid)
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  if auth.uid() is null or not exists (
-    select 1
-    from public.user_roles ur
-    where ur.user_id = auth.uid()
-      and ur.role::text = 'admin'
-  ) then
-    raise exception 'Only an administrator can view teacher online status.'
-      using errcode = '42501';
-  end if;
-
-  return query
-  select distinct session_row.user_id
-  from public.active_account_sessions as session_row
-  join public.profiles as profile
-    on profile.id = session_row.user_id
-  where profile.teacher_type in ('class_adviser', 'subject_teacher')
-    and session_row.last_seen_at >= now() - interval '90 seconds';
-end;
-$$;
-
-revoke all on function public.get_online_teacher_ids()
-  from public, anon, authenticated;
-
-grant execute on function public.get_online_teacher_ids()
-  to authenticated;
-
-commit;
 
 notify pgrst, 'reload schema';
