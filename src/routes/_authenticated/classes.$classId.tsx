@@ -573,47 +573,6 @@ function SubjectHeaderArtwork({ theme }: { theme: SubjectTheme }) {
   );
 }
 
-/**
- * Keep the fixed DepEd Excel template layout intact, but show only enrolled
- * learners in JHS exported worksheets. Physically deleting rows would break
- * the template's formulas, section headers and achievement-count tables.
- * Do not hide INPUT DATA rows: its school information shares those rows.
- */
-function hideUnusedJhsExcelRows(
-  worksheetXml: Document,
-  layout: "term" | "summary",
-  maleCount: number,
-  femaleCount: number,
-) {
-  const maleFirst = layout === "term" ? 12 : 13;
-  const femaleFirst = layout === "term" ? 63 : 64;
-  const maleHeader = maleFirst - 1;
-  const femaleHeader = femaleFirst - 1;
-  const rowElements = Array.from(worksheetXml.getElementsByTagName("row"));
-
-  rowElements.forEach((row) => {
-    const rowNumber = Number(row.getAttribute("r"));
-    const isUnusedMale =
-      rowNumber >= maleFirst + maleCount && rowNumber < maleFirst + 50;
-    const isUnusedFemale =
-      rowNumber >= femaleFirst + femaleCount && rowNumber < femaleFirst + 50;
-    const isEmptyGroupHeader =
-      (rowNumber === maleHeader && maleCount === 0) ||
-      (rowNumber === femaleHeader && femaleCount === 0);
-
-    if (isUnusedMale || isUnusedFemale || isEmptyGroupHeader) {
-      row.setAttribute("hidden", "1");
-    } else if (
-      (rowNumber >= maleFirst && rowNumber < maleFirst + maleCount) ||
-      (rowNumber >= femaleFirst && rowNumber < femaleFirst + femaleCount) ||
-      (rowNumber === maleHeader && maleCount > 0) ||
-      (rowNumber === femaleHeader && femaleCount > 0)
-    ) {
-      row.removeAttribute("hidden");
-    }
-  });
-}
-
 const MAPEH_TEMPLATE_SHEETS = [
   { sheet: "MA_T1", storageTerm: "1" },
   { sheet: "PEH_T1", storageTerm: "PEH_T1" },
@@ -634,9 +593,6 @@ async function exportMapehClassRecord({
   klass: ClassRow;
   principal: string;
 }) {
-  const isJuniorHighMapehExport = /^(?:grade\s*)?(?:7|8|9|10)$/i.test(
-    String(klass.grade_level ?? "").trim(),
-  );
   const templateResponse = await fetch("/templates/Mapeh-class.xlsx");
   if (!templateResponse.ok) {
     throw new Error("MAPEH template not found. Put Mapeh-class.xlsx in public/templates.");
@@ -915,18 +871,13 @@ async function exportMapehClassRecord({
         const value = scoreMap.get(`${activity.id}|${studentId}`);
         if (typeof value !== "number") return;
 
-        // JHS exported Term Grades use the same score limits as the UI.
-        // Leave all non-JHS export behavior unchanged.
-        const effectiveScore = isJuniorHighMapehExport
-          ? Math.max(0, Math.min(Math.max(0, Number(activity.hps) || 0), value))
-          : value;
-        raw += effectiveScore;
+        raw += value;
         hps += activity.hps;
         hasScore = true;
 
         if (component === "QA" && activity.hps > 0) {
           qaPercentageScore +=
-            (effectiveScore / activity.hps) *
+            (value / activity.hps) *
             100 *
             ((qaPartWeights[index] ?? 0) / 100);
         }
@@ -939,11 +890,6 @@ async function exportMapehClassRecord({
           ? qaPercentageScore
           : (raw / hps) * 100;
 
-      if (isJuniorHighMapehExport) {
-        // Exactly mirror the MAPEH TermGradesTable PS/WS rounding sequence.
-        const roundedPercentage = Math.round(percentageScore * 100) / 100;
-        return Math.round(roundedPercentage * (componentWeight / 100) * 100) / 100;
-      }
       return percentageScore * (componentWeight / 100);
     });
 
@@ -1116,44 +1062,6 @@ async function exportMapehClassRecord({
     writeMapehSummaryStudent(student, index + 63, index + 64);
   });
 
-  // JHS MAPEH: clear nonexistent learners' component/summary results as
-  // literal empty cells. Template VLOOKUPs otherwise label blank learners
-  // "Emerging" and count them in the achievement totals.
-  if (isJuniorHighMapehExport) {
-    MAPEH_TEMPLATE_SHEETS.forEach(({ sheet }) => {
-      for (let index = maleStudents.length; index < 50; index += 1) {
-        setCellValue(sheet, `AC${index + 12}`, "");
-      }
-      for (let index = femaleStudents.length; index < 50; index += 1) {
-        setCellValue(sheet, `AC${index + 63}`, "");
-      }
-    });
-
-    const clearUnusedSummaryRows = (
-      sheetName: string,
-      columns: readonly string[],
-    ) => {
-      for (let index = maleStudents.length; index < 50; index += 1) {
-        columns.forEach((column) =>
-          setCellValue(sheetName, `${column}${index + 13}`, ""),
-        );
-      }
-      for (let index = femaleStudents.length; index < 50; index += 1) {
-        columns.forEach((column) =>
-          setCellValue(sheetName, `${column}${index + 64}`, ""),
-        );
-      }
-    };
-
-    ["MAPEH_T1", "MAPEH_T2", "MAPEH_T3"].forEach((sheetName) =>
-      clearUnusedSummaryRows(sheetName, ["F", "J", "N", "V"]),
-    );
-    clearUnusedSummaryRows(
-      "SUMMARY OF GRADES",
-      ["F", "J", "N", "R", "V", "Z"],
-    );
-  }
-
   for (const [sheetName, values] of pendingValues) {
     const sheetPath = sheetPaths.get(sheetName);
     const sheetFile = sheetPath ? zip.file(sheetPath) : null;
@@ -1182,17 +1090,7 @@ async function exportMapehClassRecord({
         (child) => child.nodeName === "f",
       );
 
-      const replaceJhsMapehTermGrade =
-        isJuniorHighMapehExport &&
-        MAPEH_TEMPLATE_SHEETS.some(({ sheet }) => sheet === sheetName) &&
-        /^AC\d+$/.test(address);
-      const replaceJhsMapehSummaryResult =
-        isJuniorHighMapehExport &&
-        ((["MAPEH_T1", "MAPEH_T2", "MAPEH_T3"].includes(sheetName) &&
-          /^(?:F|J|N|V)\d+$/.test(address)) ||
-          (sheetName === "SUMMARY OF GRADES" &&
-            /^(?:F|J|N|R|V|Z)\d+$/.test(address)));
-      if (formulaNode && !replaceJhsMapehTermGrade && !replaceJhsMapehSummaryResult) {
+      if (formulaNode) {
         Array.from(cell.childNodes)
           .filter((child) => child.nodeName === "v")
           .forEach((child) => cell.removeChild(child));
@@ -1247,39 +1145,7 @@ async function exportMapehClassRecord({
       }
     }
 
-    if (isJuniorHighMapehExport && sheetName !== "INPUT DATA") {
-      hideUnusedJhsExcelRows(
-        sheetXml,
-        MAPEH_TEMPLATE_SHEETS.some(({ sheet }) => sheet === sheetName)
-          ? "term"
-          : "summary",
-        maleStudents.length,
-        femaleStudents.length,
-      );
-    }
     zip.file(sheetPath, serializer.serializeToString(sheetXml));
-  }
-
-  if (isJuniorHighMapehExport) {
-    zip.remove("xl/calcChain.xml");
-    Array.from(relationshipsXml.getElementsByTagName("Relationship"))
-      .filter((relationship) =>
-        (relationship.getAttribute("Target") || "").endsWith("calcChain.xml") ||
-        (relationship.getAttribute("Type") || "").endsWith("/calcChain"),
-      )
-      .forEach((relationship) => relationship.parentNode?.removeChild(relationship));
-    zip.file("xl/_rels/workbook.xml.rels", serializer.serializeToString(relationshipsXml));
-    const contentTypesFile = zip.file("[Content_Types].xml");
-    if (contentTypesFile) {
-      const contentTypesXml = parser.parseFromString(
-        await contentTypesFile.async("text"),
-        "application/xml",
-      );
-      Array.from(contentTypesXml.getElementsByTagName("Override"))
-        .filter((entry) => entry.getAttribute("PartName") === "/xl/calcChain.xml")
-        .forEach((entry) => entry.parentNode?.removeChild(entry));
-      zip.file("[Content_Types].xml", serializer.serializeToString(contentTypesXml));
-    }
   }
 
   const calculationProperties = workbookXml.getElementsByTagName("calcPr")[0];
@@ -2220,65 +2086,6 @@ function ClassDetail() {
                 ))}
               </SelectContent>
             </Select>
-
-            {/* Senior High School only: Grade 11 requires 2/3/6 Units,
-                while Grade 12 permits 3 Units or no units (SQL NULL). */}
-            {(klass.grade_level === "Grade 11" || klass.grade_level === "Grade 12") && (
-              <div className="mt-3">
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Units{" "}
-                  <span className="font-normal normal-case">
-                    {klass.grade_level === "Grade 11" ? "(Required)" : "(Optional)"}
-                  </span>
-                </div>
-                <Select
-                  value={
-                    klass.grade_level === "Grade 11"
-                      ? klass.units != null && [2, 3, 6].includes(Number(klass.units))
-                        ? String(klass.units)
-                        : undefined
-                      : klass.units === 3 ? "3" : "none"
-                  }
-                  onValueChange={(value) => {
-                    if (klass.grade_level === "Grade 11" && !["2", "3", "6"].includes(value)) {
-                      return;
-                    }
-                    updateClass.mutate({ units: value === "none" ? null : Number(value) });
-                  }}
-                  disabled={updateClass.isPending}
-                >
-                  <SelectTrigger
-                    className="h-9"
-                    aria-label={
-                      klass.grade_level === "Grade 11"
-                        ? "Grade 11 required units"
-                        : "Grade 12 optional units"
-                    }
-                  >
-                    <SelectValue placeholder="-- Select Units --" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {klass.grade_level === "Grade 12" ? (
-                      <>
-                        <SelectItem value="none">None (No Units)</SelectItem>
-                        <SelectItem value="3">3 Units</SelectItem>
-                      </>
-                    ) : (
-                      <>
-                        <SelectItem value="2">2 Units</SelectItem>
-                        <SelectItem value="3">3 Units</SelectItem>
-                        <SelectItem value="6">6 Units</SelectItem>
-                      </>
-                    )}
-                  </SelectContent>
-                </Select>
-                <p className="mt-1 text-[10px] text-muted-foreground">
-                  {klass.grade_level === "Grade 11"
-                    ? "Required for Grade 11. Select 2, 3, or 6 Units; changes are saved automatically."
-                    : "Optional for Grade 12. Select 3 Units or None; changes are saved automatically."}
-                </p>
-              </div>
-            )}
           </div>
           <HeaderField
             key={profile?.principal ?? ""}
@@ -4783,10 +4590,6 @@ function GradesPanel({
 
       const pendingValues = new Map<string, Map<string, string | number>>();
       const pendingFormulas = new Map<string, Map<string, string>>();
-      const pendingFormulaCaches = new Map<
-        string,
-        Map<string, string | number>
-      >();
       const setCellValue = (
         sheetName: string,
         address: string,
@@ -4796,23 +4599,10 @@ function GradesPanel({
         sheetValues.set(address, value ?? "");
         pendingValues.set(sheetName, sheetValues);
       };
-      const setCellFormula = (
-        sheetName: string,
-        address: string,
-        formula: string,
-        cachedValue?: string | number,
-      ) => {
+      const setCellFormula = (sheetName: string, address: string, formula: string) => {
         const sheetFormulas = pendingFormulas.get(sheetName) ?? new Map<string, string>();
         sheetFormulas.set(address, formula);
         pendingFormulas.set(sheetName, sheetFormulas);
-
-        // Excel Protected View can display cached values before recalculating.
-        if (cachedValue !== undefined) {
-          const cachedCells = pendingFormulaCaches.get(sheetName) ??
-            new Map<string, string | number>();
-          cachedCells.set(address, cachedValue);
-          pendingFormulaCaches.set(sheetName, cachedCells);
-        }
       };
 
       const fullName = (student: StudentRow) => {
@@ -4862,81 +4652,6 @@ function GradesPanel({
         scoreMap.set(`${score.activity_id}|${score.student_id}`, score.score),
       );
 
-      // JHS only (Grades 7-10): the downloaded TERM1/2/3 Term Grade must
-      // match the E-Class Record, including any teacher-edited Base/Final.
-      // Other grade levels and the separate MAPEH export are unchanged.
-      const isJuniorHighExcelExport = /^(?:grade\s*)?(?:7|8|9|10)$/i.test(
-        String(klass.grade_level ?? "").trim(),
-      );
-      const savedJhsBaseMap = new Map<string, number>();
-
-      if (isJuniorHighExcelExport) {
-        const { data: savedGrades, error: savedGradesError } = await (supabase as any)
-          .from("grades")
-          .select("student_id, term, term_grade_base")
-          .eq("class_id", classId)
-          .eq("subject", subject)
-          .in("term", ["1", "2", "3"]);
-
-        if (savedGradesError) throw savedGradesError;
-        (savedGrades ?? []).forEach((row: {
-          student_id: string;
-          term: string;
-          term_grade_base: number | null;
-        }) => {
-          if (row.term_grade_base == null) return;
-          const savedBase = Number(row.term_grade_base);
-          if (Number.isFinite(savedBase)) {
-            savedJhsBaseMap.set(`${row.student_id}|${row.term}`, savedBase);
-          }
-        });
-      }
-
-      // Mirror TermGradesTable.computeRow(): include every configured WW/PT
-      // activity, the first three QA activities, the actual component weights,
-      // clamped scores, and the same per-component rounding. Do not rely on
-      // the template's different ST1/ST2/TE transmutation formula.
-      const jhsSystemTermGrade = (
-        studentId: string,
-        termValue: string,
-      ): number | null => {
-        const weightedScores = (["WW", "PT", "QA"] as const).map((component) => {
-          const componentActivities = allActivities
-            .filter((activity) => activity.term === termValue && activity.component === component)
-            .sort((left, right) => left.position - right.position)
-            .slice(0, component === "QA" ? 3 : undefined);
-
-          let raw = 0;
-          let hps = 0;
-          let hasScore = false;
-          componentActivities.forEach((activity) => {
-            const storedScore = scoreMap.get(`${activity.id}|${studentId}`);
-            if (typeof storedScore !== "number") return;
-            const activityHps = Math.max(0, Number(activity.hps) || 0);
-            raw += Math.max(0, Math.min(activityHps, storedScore));
-            hps += Number(activity.hps);
-            hasScore = true;
-          });
-          if (!hasScore || hps <= 0) return null;
-
-          const percentageScore = Math.round(((raw / hps) * 100) * 100) / 100;
-          const weight = allComponents.find(
-            (item) => item.term === termValue && item.component === component,
-          )?.weight ?? (component === "WW" ? 20 : component === "PT" ? 50 : 30);
-          return Math.round(percentageScore * (weight / 100) * 100) / 100;
-        });
-
-        if (weightedScores.some((value) => value == null)) return null;
-        const initialGrade = Math.round(
-          (weightedScores as number[]).reduce((sum, value) => sum + value, 0) * 100,
-        ) / 100;
-        const computedBase = roundInitialGrade(initialGrade);
-        return resolveTermGradeBase(
-          computedBase,
-          savedJhsBaseMap.get(`${studentId}|${termValue}`),
-        );
-      };
-
       const componentColumns: Record<"WW" | "PT" | "QA", { columns: string[]; limit: number }> = {
         WW: { columns: ["F", "G", "H", "I", "J"], limit: 5 },
         PT: { columns: ["N", "O", "P"], limit: 3 },
@@ -4946,46 +4661,19 @@ function GradesPanel({
       ["TERM1", "TERM2", "TERM3"].forEach((sheetName, termIndex) => {
         const termValue = String(termIndex + 1);
 
-        if (isJuniorHighExcelExport) {
-          // Write the exact Term Grade currently shown in the JHS UI for
-          // each learner. This is an export snapshot, not an Excel formula:
-          // later edits to Excel scores require exporting again from SIGLA.
-          // AD descriptors and Summary of Grades still reference AC.
-          maleStudents.forEach((student, studentIndex) => {
-            setCellValue(
-              sheetName,
-              `AC${studentIndex + 12}`,
-              jhsSystemTermGrade(student.id, termValue),
-            );
-          });
-          femaleStudents.forEach((student, studentIndex) => {
-            setCellValue(
-              sheetName,
-              `AC${studentIndex + 63}`,
-              jhsSystemTermGrade(student.id, termValue),
-            );
-          });
-          // Clear template formulas for unused learner rows too, avoiding
-          // transmuted values appearing in otherwise empty JHS rows.
-          for (let index = maleStudents.length; index < 50; index += 1) {
-            setCellValue(sheetName, `AC${index + 12}`, "");
-          }
-          for (let index = femaleStudents.length; index < 50; index += 1) {
-            setCellValue(sheetName, `AC${index + 63}`, "");
-          }
-        } else {
-          // SHS and any other grade levels retain the existing template rule.
-          [
-            ...Array.from({ length: 50 }, (_, index) => index + 12),
-            ...Array.from({ length: 50 }, (_, index) => index + 63),
-          ].forEach((row) => {
-            setCellFormula(
-              sheetName,
-              `AC${row}`,
-              `IF(AB${row}="","",VLOOKUP(AB${row},'Helper (Do Not Delete)'!$H$3:$K$43,4,TRUE))`,
-            );
-          });
-        }
+        // Use the exact transmutation table from the provided Excel template.
+        // Initial Grade in AB is looked up against Helper (Do Not Delete)
+        // so the exported Term Grade matches the E-Class Record UI.
+        [
+          ...Array.from({ length: 50 }, (_, index) => index + 12),
+          ...Array.from({ length: 50 }, (_, index) => index + 63),
+        ].forEach((row) => {
+          setCellFormula(
+            sheetName,
+            `AC${row}`,
+            `IF(AB${row}="","",VLOOKUP(AB${row},'Helper (Do Not Delete)'!$H$3:$K$43,4,TRUE))`,
+          );
+        });
 
         (["WW", "PT", "QA"] as const).forEach((component) => {
           const config = componentColumns[component];
@@ -5023,99 +4711,6 @@ function GradesPanel({
         });
       });
 
-      if (isJuniorHighExcelExport) {
-        const achievementLevels = [
-          "Advancing", "Benchmarking", "Connecting", "Developing", "Emerging",
-        ] as const;
-        const maleAchievement = new Map<string, number>();
-        const femaleAchievement = new Map<string, number>();
-
-        const writeJhsSummaryRow = (
-          student: StudentRow | undefined,
-          summaryRow: number,
-          detailRow: number,
-          genderStats: Map<string, number>,
-        ) => {
-          const grades = (["1", "2", "3"] as const).map((termValue) =>
-            student ? jhsSystemTermGrade(student.id, termValue) : null,
-          );
-          const isComplete = student !== undefined &&
-            grades.every((grade): grade is number => typeof grade === "number");
-          const final = isComplete
-            ? Math.round((grades[0]! + grades[1]! + grades[2]!) / 3)
-            : null;
-          const descriptor = final == null ? "" : descriptorFor(final).label;
-          const remark = final == null ? "" : final >= 75 ? "PASSED" : "FAILED";
-          if (descriptor) {
-            genderStats.set(descriptor, (genderStats.get(descriptor) ?? 0) + 1);
-          }
-
-          (["F", "J", "N"] as const).forEach((column, index) => {
-            const termSheet = `TERM${index + 1}`;
-            setCellFormula(
-              "SUMMARY OF GRADES",
-              `${column}${summaryRow}`,
-              `IF(OR($B${summaryRow}="",NOT(ISNUMBER(${termSheet}!AC${detailRow}))),"",${termSheet}!AC${detailRow})`,
-              grades[index] ?? "",
-            );
-          });
-          setCellFormula(
-            "SUMMARY OF GRADES",
-            `R${summaryRow}`,
-            `IF(OR($B${summaryRow}="",COUNT(F${summaryRow},J${summaryRow},N${summaryRow})<3),"",ROUND(AVERAGE(F${summaryRow},J${summaryRow},N${summaryRow}),0))`,
-            final ?? "",
-          );
-          setCellFormula(
-            "SUMMARY OF GRADES",
-            `V${summaryRow}`,
-            `IF(OR($B${summaryRow}="",NOT(ISNUMBER(R${summaryRow}))),"",IFERROR(VLOOKUP(R${summaryRow},DESCRIPTORS,4,TRUE),""))`,
-            descriptor,
-          );
-          setCellFormula(
-            "SUMMARY OF GRADES",
-            `Z${summaryRow}`,
-            `IF(OR($B${summaryRow}="",NOT(ISNUMBER(R${summaryRow}))),"",IF(R${summaryRow}>=75,"PASSED","FAILED"))`,
-            remark,
-          );
-        };
-
-        for (let index = 0; index < 50; index += 1) {
-          writeJhsSummaryRow(
-            maleStudents[index], index + 13, index + 12, maleAchievement,
-          );
-          writeJhsSummaryRow(
-            femaleStudents[index], index + 64, index + 63, femaleAchievement,
-          );
-        }
-
-        // Count only completed grades belonging to real learners. Fix the
-        // original template's off-by-one achievement COUNTIF ranges too.
-        achievementLevels.forEach((level, index) => {
-          const targetRow = index + 117;
-          const maleCount = maleAchievement.get(level) ?? 0;
-          const femaleCount = femaleAchievement.get(level) ?? 0;
-          setCellFormula(
-            "SUMMARY OF GRADES", `F${targetRow}`,
-            `COUNTIF($V$13:$V$62,"${level}")`, maleCount,
-          );
-          setCellFormula(
-            "SUMMARY OF GRADES", `J${targetRow}`,
-            `COUNTIF($V$64:$V$113,"${level}")`, femaleCount,
-          );
-          setCellFormula(
-            "SUMMARY OF GRADES", `M${targetRow}`,
-            `F${targetRow}+J${targetRow}`, maleCount + femaleCount,
-          );
-        });
-        const maleTotal = Array.from(maleAchievement.values()).reduce((a, b) => a + b, 0);
-        const femaleTotal = Array.from(femaleAchievement.values()).reduce((a, b) => a + b, 0);
-        setCellFormula("SUMMARY OF GRADES", "F122", "SUM(F117:F121)", maleTotal);
-        setCellFormula("SUMMARY OF GRADES", "J122", "SUM(J117:J121)", femaleTotal);
-        setCellFormula(
-          "SUMMARY OF GRADES", "M122", "F122+J122", maleTotal + femaleTotal,
-        );
-      }
-
       for (const sheetName of requiredSheets) {
         const values = pendingValues.get(sheetName) ?? new Map();
         const formulas = pendingFormulas.get(sheetName) ?? new Map();
@@ -5150,19 +4745,6 @@ function GradesPanel({
           );
           formulaNode.textContent = formula;
           cell.appendChild(formulaNode);
-
-          const cachedValue = pendingFormulaCaches.get(sheetName)?.get(address);
-          if (cachedValue !== undefined) {
-            if (typeof cachedValue === "string") {
-              cell.setAttribute("t", "str");
-            }
-            const valueNode = sheetXml.createElementNS(
-              "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
-              "v",
-            );
-            valueNode.textContent = String(cachedValue);
-            cell.appendChild(valueNode);
-          }
         }
 
         for (const [address, value] of values) {
@@ -5179,13 +4761,7 @@ function GradesPanel({
           // downloaded workbook. Keep every existing formula and update only
           // its cached displayed result.
           const formulaNode = Array.from(cell.childNodes).find((child) => child.nodeName === "f");
-          // For JHS AC Term Grade only, discard the old shared VLOOKUP
-          // formula so Excel uses the actual system grade written above.
-          const replaceJhsTermGradeFormula =
-            isJuniorHighExcelExport &&
-            (sheetName === "TERM1" || sheetName === "TERM2" || sheetName === "TERM3") &&
-            /^AC\d+$/.test(address);
-          if (formulaNode && !replaceJhsTermGradeFormula) {
+          if (formulaNode) {
             Array.from(cell.childNodes)
               .filter((child) => child.nodeName === "v")
               .forEach((child) => cell.removeChild(child));
@@ -5228,39 +4804,7 @@ function GradesPanel({
           }
         }
 
-        if (isJuniorHighExcelExport && sheetName !== "INPUT DATA") {
-          hideUnusedJhsExcelRows(
-            sheetXml,
-            sheetName === "SUMMARY OF GRADES" ? "summary" : "term",
-            maleStudents.length,
-            femaleStudents.length,
-          );
-        }
         zip.file(sheetPath, serializer.serializeToString(sheetXml));
-      }
-
-      if (isJuniorHighExcelExport) {
-        zip.remove("xl/calcChain.xml");
-        Array.from(relationshipsXml.getElementsByTagName("Relationship"))
-          .filter((relationship) => {
-            const target = relationship.getAttribute("Target") || "";
-            const type = relationship.getAttribute("Type") || "";
-            return target.endsWith("calcChain.xml") || type.endsWith("/calcChain");
-          })
-          .forEach((relationship) => relationship.parentNode?.removeChild(relationship));
-        zip.file("xl/_rels/workbook.xml.rels", serializer.serializeToString(relationshipsXml));
-
-        const contentTypesFile = zip.file("[Content_Types].xml");
-        if (contentTypesFile) {
-          const contentTypesXml = parser.parseFromString(
-            await contentTypesFile.async("text"),
-            "application/xml",
-          );
-          Array.from(contentTypesXml.getElementsByTagName("Override"))
-            .filter((entry) => entry.getAttribute("PartName") === "/xl/calcChain.xml")
-            .forEach((entry) => entry.parentNode?.removeChild(entry));
-          zip.file("[Content_Types].xml", serializer.serializeToString(contentTypesXml));
-        }
       }
 
       const calculationProperties = workbookXml.getElementsByTagName("calcPr")[0];

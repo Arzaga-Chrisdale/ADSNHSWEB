@@ -90,7 +90,7 @@ ADD CONSTRAINT classes_units_by_grade_check CHECK (
   (grade_level = 'Grade 11' AND units IN (2, 3, 6))
   OR
   (grade_level = 'Grade 12' AND (units IS NULL OR units = 3))
-  OR  
+  OR
   (grade_level NOT IN ('Grade 11', 'Grade 12') AND units IS NULL)
 );
 

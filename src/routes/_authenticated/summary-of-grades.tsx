@@ -582,22 +582,11 @@ function expandSummaryRemarksArea(
 
   if (remarksEndColumn <= remarksColumn) return remarksEndColumn;
 
-  // The original template's Remarks header has a complete top border.
-  // Keep its two exported cells separate instead of merging them: Excel
-  // sometimes renders only the first half of a merged header's top line.
-  // A dedicated center-across-selection border style is applied below.
-  for (let column = remarksColumn + 1; column <= remarksEndColumn; column += 1) {
-    copyXmlCellStyle(
-      sheetDocument,
-      `${excelColumnName(remarksColumn)}7`,
-      `${excelColumnName(column)}7`,
-    );
-    clearXmlCell(sheetDocument, `${excelColumnName(column)}7`);
-  }
-
-  // Keep the existing merged Remarks BODY cells, as well as the continuous
-  // MALE/FEMALE separator rows, exactly as before.
+  // Merge the Remarks header and learner rows only.
+  // MALE/FEMALE separator rows are handled separately so their horizontal
+  // lines stay continuous across the whole table.
   const remarksRows = [
+    7,
     ...Array.from({ length: 11 }, (_, index) => 9 + index),
     ...Array.from({ length: 24 }, (_, index) => 21 + index),
   ];
@@ -641,112 +630,6 @@ function expandSummaryRemarksArea(
   }
 
   return remarksEndColumn;
-}
-
-/**
- * Repair only the Summary of Grades Excel Remarks HEADER border.
- *
- * The XLSM template's Remarks area is compacted from T into two worksheet
- * columns (e.g. F:G when there is one subject). Excel sometimes drops the
- * second column's TOP border when the header itself is merged. Keep the
- * header unmerged and style both cells as "Center Across Selection": this
- * preserves the visually centered title AND a full-width border without
- * changing worksheet columns or the merged Remarks body/student rows.
- *
- * Add two dedicated styles instead of changing the template's shared
- * styles; all other cells and all other Excel exports stay untouched.
- */
-async function repairSummaryRemarksHeaderBorder(
-  zip: JSZip,
-  sheetDocument: Document,
-  remarksColumn: number,
-  remarksEndColumn: number,
-) {
-  if (remarksEndColumn !== remarksColumn + 1) return;
-
-  const stylesFile = zip.file("xl/styles.xml");
-  if (!stylesFile) {
-    throw new Error("The Summary of Grades template styles are missing.");
-  }
-
-  const parser = new DOMParser();
-  const serializer = new XMLSerializer();
-  const stylesDocument = parser.parseFromString(
-    await stylesFile.async("text"),
-    "application/xml",
-  );
-  if (stylesDocument.querySelector("parsererror")) {
-    throw new Error("The Summary of Grades template styles are invalid.");
-  }
-
-  const mainNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
-  const borders = stylesDocument.getElementsByTagName("borders")[0];
-  const cellXfs = stylesDocument.getElementsByTagName("cellXfs")[0];
-  const firstHeader = xmlCell(sheetDocument, `${excelColumnName(remarksColumn)}7`);
-  const lastHeader = xmlCell(sheetDocument, `${excelColumnName(remarksEndColumn)}7`);
-
-  if (!borders || !cellXfs || !firstHeader || !lastHeader) {
-    throw new Error("The Summary of Grades Remarks header is missing.");
-  }
-
-  const xfNodes = Array.from(cellXfs.children).filter(
-    (node) => node.localName === "xf",
-  );
-  const borderNodes = Array.from(borders.children).filter(
-    (node) => node.localName === "border",
-  );
-  const sourceStyleIndex = Number(firstHeader.getAttribute("s") ?? "0");
-  const sourceXf = xfNodes[sourceStyleIndex];
-  const sourceBorderIndex = Number(sourceXf?.getAttribute("borderId") ?? "0");
-  const sourceBorder = borderNodes[sourceBorderIndex];
-
-  if (!sourceXf || !sourceBorder) {
-    throw new Error("The Summary of Grades Remarks header style is missing.");
-  }
-
-  const createHeaderStyle = (side: "first" | "last") => {
-    // Clone the original Remarks font, fill, text wrapping and outline.
-    const border = sourceBorder.cloneNode(true) as Element;
-    const left = Array.from(border.children).find((node) => node.localName === "left");
-    const right = Array.from(border.children).find((node) => node.localName === "right");
-    if (!left || !right) {
-      throw new Error("The Remarks border definition is incomplete.");
-    }
-
-    // Two adjacent unmerged cells should look like ONE uninterrupted box:
-    // first cell owns the left edge, last cell owns the right edge. Both
-    // retain the template's original top and bottom border settings.
-    const internalEdge = side === "first" ? right : left;
-    internalEdge.removeAttribute("style");
-    Array.from(internalEdge.childNodes).forEach((child) => child.parentNode?.removeChild(child));
-
-    const borderIndex = borderNodes.length + (side === "last" ? 1 : 0);
-    borders.appendChild(border);
-
-    const xf = sourceXf.cloneNode(true) as Element;
-    xf.setAttribute("borderId", String(borderIndex));
-    xf.setAttribute("applyBorder", "1");
-    xf.setAttribute("applyAlignment", "1");
-    let alignment = Array.from(xf.children).find(
-      (node) => node.localName === "alignment",
-    );
-    if (!alignment) {
-      alignment = stylesDocument.createElementNS(mainNs, "alignment");
-      xf.appendChild(alignment);
-    }
-    alignment.setAttribute("horizontal", "centerContinuous");
-    alignment.setAttribute("vertical", "center");
-
-    const styleIndex = xfNodes.length + (side === "last" ? 1 : 0);
-    cellXfs.appendChild(xf);
-    return styleIndex;
-  };
-
-  firstHeader.setAttribute("s", String(createHeaderStyle("first")));
-  lastHeader.setAttribute("s", String(createHeaderStyle("last")));
-  borders.setAttribute("count", String(borderNodes.length + 2));
-  cellXfs.setAttribute("count", String(xfNodes.length + 2));
-  zip.file("xl/styles.xml", serializer.serializeToString(stylesDocument));
 }
 
 function compactSummaryGradeTable(
@@ -3907,8 +3790,6 @@ function SOGPage() {
       const allLearnerRows = [...maleRows, ...femaleRows];
 
       allLearnerRows.forEach((excelRow) => {
-        // Clear the template's old numbering before exporting the actual roster.
-        clearXmlCell(sheetDocument, `A${excelRow}`);
         clearXmlCell(sheetDocument, `B${excelRow}`);
 
         for (let subjectIndex = 0; subjectIndex < maxSubjectColumns; subjectIndex += 1) {
@@ -3947,8 +3828,6 @@ function SOGPage() {
               row.st.middle_name ? ` ${row.st.middle_name}` : ""
             }`.trim();
 
-          // Each sex group begins at 1, matching the on-screen roster.
-          setXmlNumber(sheetDocument, `A${excelRow}`, index + 1);
           setXmlText(sheetDocument, `B${excelRow}`, learnerName);
 
           exportedSubjects.forEach((subjectName, subjectIndex) => {
@@ -4016,16 +3895,6 @@ function SOGPage() {
         sheetDocument,
         "R49",
         exportClass.principal || exportProfile?.principal || "",
-      );
-
-      // Fix only the two-column Remarks header's incomplete top outline.
-      // The learner numbers, grades, other table cells, and template header
-      // are deliberately unchanged.
-      await repairSummaryRemarksHeaderBorder(
-        zip,
-        sheetDocument,
-        compactTableColumns.remarksColumn,
-        compactTableColumns.remarksEndColumn,
       );
 
       zip.file(
