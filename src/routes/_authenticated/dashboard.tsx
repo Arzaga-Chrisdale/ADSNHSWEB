@@ -201,10 +201,10 @@ const SUBJECTS_BY_GRADE: Record<string, readonly string[]> = {
 };
 
 const UNITS_BY_GRADE: Record<string, readonly string[]> = {
-  // Grade 11 keeps the required Units selector.
-  // Grade 12 intentionally has no Units selector. Its Subject is entered
-  // manually and SF9 leaves the Units cells blank.
+  // Grade 11 still requires selecting a unit value.
   "Grade 11": ["2", "3", "6"],
+  // Grade 12 can select 3 Units or leave Units unspecified.
+  "Grade 12": ["3", "none"],
 };
 
 const emptyClassForm = {
@@ -692,14 +692,10 @@ function Dashboard() {
       const allowedSchoolYear = await resolveAllowedSchoolYear(
         activeSchoolYear ?? form.school_year,
       );
-      // Grade 12 classes do not use Units. Even if an old form value is
-      // still present in state, always save Grade 12 units as null.
+      // Grade 11 units are required by the form. Grade 12 units are
+      // optional: store NULL when blank or "None" is selected.
       const units =
-        form.grade_level === "Grade 12"
-          ? null
-          : form.units && form.units !== "none"
-            ? Number(form.units)
-            : null;
+        form.units && form.units !== "none" ? Number(form.units) : null;
       const { error } = await supabase.from("classes").insert({
         subject: form.subject.trim(),
         grade_level: form.grade_level,
@@ -811,24 +807,40 @@ function Dashboard() {
               </div>
               {UNITS_BY_GRADE[form.grade_level] && (
                 <div>
-                  <Label>Units</Label>
+                  <Label htmlFor="new-class-units">
+                    Units{form.grade_level === "Grade 12" ? " (Optional)" : ""}
+                  </Label>
                   <Select
                     value={form.units || undefined}
-                    onValueChange={(v) => setForm({ ...form, units: v })}
+                    onValueChange={(v) =>
+                      setForm((current) => ({ ...current, units: v }))
+                    }
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="-- Select Units --" />
+                    <SelectTrigger id="new-class-units">
+                      <SelectValue
+                        placeholder={
+                          form.grade_level === "Grade 12"
+                            ? "-- Optional: Select Units --"
+                            : "-- Select Units --"
+                        }
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       {UNITS_BY_GRADE[form.grade_level].map((unit) => (
                         <SelectItem key={unit} value={unit}>
                           {unit === "none"
-                            ? "None"
+                            ? "None (No Units)"
                             : `${unit} ${unit === "1" ? "Unit" : "Units"}`}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {form.grade_level === "Grade 12" && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Optional for Grade 12. You can leave this blank, choose
+                      3 Units, or select None to clear your choice.
+                    </p>
+                  )}
                 </div>
               )}
               <div className="grid grid-cols-2 gap-3">
@@ -1028,7 +1040,7 @@ function Dashboard() {
                       </div>
                       <div className="mt-0.5 truncate text-sm text-foreground/65">
                         {c.grade_level} · {c.section} · {c.school_year}
-                        {c.grade_level !== "Grade 12" && c.units != null
+                        {c.units != null
                           ? ` · ${c.units} Units`
                           : ""}
                       </div>
