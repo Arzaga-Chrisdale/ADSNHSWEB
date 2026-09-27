@@ -781,6 +781,12 @@ function sortGradeLevels(values: string[]) {
 }
 
 function AdminAnalyticsInsights() {
+  const queryClient = useQueryClient();
+  const [deleteClassCandidate, setDeleteClassCandidate] =
+    useState<AdminAnalyticsClass | null>(null);
+  const [isDeletingClass, setIsDeletingClass] = useState(false);
+  const [deleteClassError, setDeleteClassError] = useState<string | null>(null);
+  const [deletedClassMessage, setDeletedClassMessage] = useState<string | null>(null);
   const [schoolYear, setSchoolYear] = useState("all");
   const [gradeLevel, setGradeLevel] = useState("all");
   const [section, setSection] = useState("all");
@@ -982,6 +988,73 @@ function AdminAnalyticsInsights() {
     setSearch("");
   };
 
+  const deleteAnalyticsClass = async () => {
+    if (!deleteClassCandidate || isDeletingClass) return;
+
+    const target = deleteClassCandidate;
+    setIsDeletingClass(true);
+    setDeleteClassError(null);
+
+    try {
+      // This RPC checks Admin permissions and removes the class and its
+      // dependent request history in a single database transaction.
+      const { data: wasDeleted, error: deleteError } = await (supabase as any).rpc(
+        "admin_delete_analytics_class",
+        { p_class_id: target.id },
+      );
+
+      if (deleteError) {
+        if (
+          deleteError.code === "PGRST202" ||
+          /admin_delete_analytics_class.*(not found|does not exist)/i.test(
+            deleteError.message ?? "",
+          )
+        ) {
+          throw new Error(
+            "The Admin class-deletion database function is not installed yet. " +
+              "Apply 20260926040000_admin_delete_analytics_class.sql in Supabase, then try again. " +
+              "This class was not deleted.",
+          );
+        }
+        throw deleteError;
+      }
+
+      if (wasDeleted !== true) {
+        throw new Error("This class no longer exists. Refresh the class list.");
+      }
+
+      // Report a completed deletion even if the subsequent refresh fails.
+      setDeleteClassCandidate(null);
+      setDeleteClassError(null);
+      if (selectedClassId === target.id) setSelectedClassId(null);
+      setDeletedClassMessage(
+        `${classLabel(target)} · ${target.subject || "No Subject"} was deleted.`,
+      );
+
+      queryClient.removeQueries({
+        queryKey: ["admin-analytics-students", target.id],
+      });
+      const results = await Promise.allSettled([
+        queryClient.invalidateQueries({ queryKey: ["admin-analytics-directory"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin-dashboard-data"] }),
+        queryClient.invalidateQueries({ queryKey: ["classes"] }),
+        queryClient.invalidateQueries({ queryKey: ["students-count"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin-school-form-submissions"] }),
+      ]);
+      if (results.some((result) => result.status === "rejected")) {
+        console.warn("Class deleted, but some Admin data could not refresh.");
+      }
+    } catch (error) {
+      setDeleteClassError(
+        error instanceof Error
+          ? error.message
+          : "The class could not be deleted. Please try again.",
+      );
+    } finally {
+      setIsDeletingClass(false);
+    }
+  };
+
   if (directoryLoading) {
     return <AdminAnalyticsInsightsSkeleton />;
   }
@@ -1025,6 +1098,26 @@ function AdminAnalyticsInsights() {
           </div>
         </div>
       </div>
+
+      {deletedClassMessage && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-semibold text-emerald-800"
+        >
+          <span className="flex items-center gap-2">
+            <CircleCheck className="size-4 shrink-0" />
+            {deletedClassMessage}
+          </span>
+          <button
+            type="button"
+            onClick={() => setDeletedClassMessage(null)}
+            aria-label="Dismiss deletion success message"
+            className="rounded-md p-1 hover:bg-emerald-100"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-[var(--admin-border)] bg-[var(--admin-white)] p-4 shadow-[var(--admin-shadow-panel)]">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
@@ -1229,15 +1322,30 @@ function AdminAnalyticsInsights() {
                           </span>
                         </td>
                         <td className="px-3 py-3 text-right">
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={() => setSelectedClassId(row.id)}
-                            className="h-8 gap-1.5 rounded-lg bg-[var(--admin-primary)] px-3 text-[10px] hover:bg-[var(--admin-primary-hover)]"
-                          >
-                            <BarChart3 className="size-3.5" />
-                            {selected ? "Viewing" : "Open Analytics"}
-                          </Button>
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => setSelectedClassId(row.id)}
+                              className="h-8 gap-1.5 whitespace-nowrap rounded-lg bg-[var(--admin-primary)] px-3 text-[10px] hover:bg-[var(--admin-primary-hover)]"
+                            >
+                              <BarChart3 className="size-3.5" />
+                              {selected ? "Viewing" : "Open Analytics"}
+                            </Button>
+                            <button
+                              type="button"
+                              aria-label={`Delete ${classLabel(row)} ${row.subject || "class"}`}
+                              title={`Delete ${classLabel(row)} · ${row.subject || "class"}`}
+                              onClick={() => {
+                                setDeletedClassMessage(null);
+                                setDeleteClassError(null);
+                                setDeleteClassCandidate(row);
+                              }}
+                              className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-rose-200 bg-white text-rose-600 transition hover:border-rose-400 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1326,12 +1434,103 @@ function AdminAnalyticsInsights() {
       <div className="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs leading-5 text-sky-800">
         <UserRound className="mt-0.5 size-4 shrink-0" />
         <span>
-          Admin Analytics is read-only. It reuses the same class calculations
-          and Gaussian Naive Bayes flow as the teacher, so the Admin sees the
-          same actual Term 1/Term 2 data, learner-level Term 3 predictions,
-          probability output, section forecast, and actionable insights.
+          Admin Analytics is read-only for grade data. Administrators can
+          separately delete an entire class using its Delete icon.
         </span>
       </div>
+
+      <Dialog
+        open={Boolean(deleteClassCandidate)}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingClass) {
+            setDeleteClassCandidate(null);
+            setDeleteClassError(null);
+          }
+        }}
+      >
+        <DialogContent className="w-[calc(100%-2rem)] max-w-[520px] gap-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-2xl">
+          <div className="px-7 pb-7 pt-8 sm:px-8">
+            <div className="mb-5 grid size-16 place-items-center rounded-full bg-red-50">
+              <Trash2 className="size-7 text-red-600" />
+            </div>
+            <DialogHeader className="space-y-3 pr-7">
+              <DialogTitle className="text-2xl font-bold text-slate-900 sm:text-[28px]">
+                Delete this class?
+              </DialogTitle>
+              <DialogDescription className="text-sm leading-6 text-slate-700 sm:text-[15px]">
+                Are you sure you want to permanently delete this class?
+              </DialogDescription>
+            </DialogHeader>
+
+            {deleteClassCandidate && (
+              <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                <p className="font-bold text-slate-900">
+                  {classLabel(deleteClassCandidate)} · {deleteClassCandidate.subject || "No Subject"}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  School Year: {deleteClassCandidate.school_year || "—"}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Teacher: {profileById.get(deleteClassCandidate.teacher_id)?.full_name ||
+                    profileById.get(deleteClassCandidate.teacher_id)?.email ||
+                    "Unknown Teacher"}
+                </p>
+              </div>
+            )}
+
+            <div className="mt-4 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-4">
+              <AlertTriangle className="mt-0.5 size-5 shrink-0 text-red-600" />
+              <div>
+                <p className="text-sm font-bold text-red-700">
+                  This action cannot be undone.
+                </p>
+                <p className="mt-1 text-xs leading-5 text-red-800">
+                  The selected class and its dependent student, grade, and
+                  submission records may be permanently removed. The teacher's
+                  account and their other classes will not be deleted.
+                </p>
+              </div>
+            </div>
+
+            {deleteClassError && (
+              <div
+                role="alert"
+                className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-5 text-red-800"
+              >
+                {deleteClassError}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="border-t border-slate-200 bg-white px-7 py-5 sm:space-x-3 sm:px-8">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isDeletingClass}
+              onClick={() => {
+                setDeleteClassCandidate(null);
+                setDeleteClassError(null);
+              }}
+              className="h-11 rounded-lg px-5 text-sm font-semibold"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={!deleteClassCandidate || isDeletingClass}
+              onClick={() => void deleteAnalyticsClass()}
+              className="h-11 gap-2 rounded-lg bg-red-700 px-5 text-sm font-semibold text-white hover:bg-red-800"
+            >
+              {isDeletingClass ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Trash2 className="size-4" />
+              )}
+              {isDeletingClass ? "Deleting..." : "Yes, Delete Class"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
