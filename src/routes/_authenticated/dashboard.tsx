@@ -200,6 +200,30 @@ const SUBJECTS_BY_GRADE: Record<string, readonly string[]> = {
   ],
 };
 
+// Grade 12 uses the exact learning-area names in the uploaded SF9 workbook.
+// Allow typing in New Class, but save the workbook's canonical spelling
+// (also accept punctuation, spacing, and common PE abbreviation variants).
+function normalizeGrade12Sf9Subject(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\bp\s*\.?\s*e\.?\b/g, "pe")
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function canonicalGrade12Sf9Subject(value: string): string | null {
+  const key = normalizeGrade12Sf9Subject(value);
+  if (!key) return null;
+  return (
+    SUBJECTS_BY_GRADE["Grade 12"].find(
+      (subject) => normalizeGrade12Sf9Subject(subject) === key,
+    ) ?? null
+  );
+}
+
 const UNITS_BY_GRADE: Record<string, readonly string[]> = {
   // Grade 11 still requires selecting a unit value.
   "Grade 11": ["2", "3", "6"],
@@ -692,12 +716,39 @@ function Dashboard() {
       const allowedSchoolYear = await resolveAllowedSchoolYear(
         activeSchoolYear ?? form.school_year,
       );
+      // Grade 12 retains the typed Subject field, but it must match an
+      // actual SF9 learning area to prevent a silent empty report-card row.
+      const subject = form.grade_level === "Grade 12"
+        ? canonicalGrade12Sf9Subject(form.subject)
+        : form.subject.trim();
+      if (!subject) {
+        throw new Error("Type a subject matching one of the 16 Grade 12 SF9 learning areas.");
+      }
+
+      // Grade 12: verify the typed/canonical subject with the additive SQL
+      // mapping before saving. It never turns the text field into a dropdown.
+      // The migration must be applied first so direct DB writes cannot
+      // silently diverge from the workbook's fixed subject list.
+      if (form.grade_level === "Grade 12") {
+        const { data: serverMatch, error: subjectLookupError } = await (supabase as any)
+          .rpc("grade12_sf9_subject_match", { p_subject: subject });
+        if (subjectLookupError) {
+          throw new Error(
+            `Unable to verify the Grade 12 subject. Install the supplied SQL migration first. ${subjectLookupError.message}`,
+          );
+        }
+        const verified = Array.isArray(serverMatch) ? serverMatch[0] : serverMatch;
+        if (verified?.canonical_subject !== subject) {
+          throw new Error("The Grade 12 subject does not match the SQL/SF9 subject mapping.");
+        }
+      }
+
       // Grade 11 units are required by the form. Grade 12 units are
       // optional: store NULL when blank or "None" is selected.
       const units =
         form.units && form.units !== "none" ? Number(form.units) : null;
       const { error } = await supabase.from("classes").insert({
-        subject: form.subject.trim(),
+        subject,
         grade_level: form.grade_level,
         section: form.section.trim(),
         school_year: allowedSchoolYear,
@@ -848,16 +899,38 @@ function Dashboard() {
                   <Label>Subject</Label>
 
                   {form.grade_level === "Grade 12" ? (
-                    <Input
-                      value={form.subject}
-                      onChange={(e) =>
-                        setForm((current) => ({
-                          ...current,
-                          subject: e.target.value,
-                        }))
-                      }
-                      placeholder="Enter subject"
-                    />
+                    <>
+                      <Input
+                        value={form.subject}
+                        onChange={(e) =>
+                          setForm((current) => ({
+                            ...current,
+                            subject: e.target.value,
+                          }))
+                        }
+                        onBlur={() => {
+                          const canonical = canonicalGrade12Sf9Subject(form.subject);
+                          if (canonical) {
+                            setForm((current) => ({ ...current, subject: canonical }));
+                          }
+                        }}
+                        placeholder="Enter Subject"
+                        autoComplete="off"
+                        aria-describedby="new-grade12-subject-help"
+                      />
+                      <p
+                        id="new-grade12-subject-help"
+                        className={`mt-1 text-xs ${
+                          form.subject.trim() && !canonicalGrade12Sf9Subject(form.subject)
+                            ? "text-destructive"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        {form.subject.trim() && !canonicalGrade12Sf9Subject(form.subject)
+                          ? "Use one of the 16 Grade 12 SF9 subject names; other names cannot be mapped to the report card."
+                          : ""}
+                      </p>
+                    </>
                   ) : (
                     <Select
                       value={form.subject || undefined}
@@ -973,6 +1046,8 @@ function Dashboard() {
                 onClick={() => createClass.mutate()}
                 disabled={
                   !form.subject.trim() ||
+                  (form.grade_level === "Grade 12" &&
+                    !canonicalGrade12Sf9Subject(form.subject)) ||
                   !form.section.trim() ||
                   !(activeSchoolYear || form.school_year) ||
                   (form.grade_level === "Grade 11" && !form.units) ||

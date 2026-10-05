@@ -177,12 +177,23 @@ const SUBJECTS_BY_GRADE: Record<string, readonly string[]> = {
     "Elective Subject",
   ],
   "Grade 12": [
+    // Exact rows in the uploaded Grade 12 SF9 template.
+    "Media and Information Literacy",
+    "PE and Health 3",
+    "Introduction to Human Philosophy",
+    "Disaster Readiness and Risk Reduction",
+    "Contemporary Philippine Arts",
+    "PE and Health 4",
+    "Filipino sa Piling Larang",
+    "Practical Research 2",
     "General Biology 1",
     "General Physics 1",
-    "Media & Information Literacy",
-    "Practical Research 2",
-    "P.E. & Health",
-    "Filipino sa Piling Larang",
+    "English for Academic & Professional Purposes",
+    "Entrepreneurship",
+    "General Physics 2",
+    "General Biology 2",
+    "Inquiries, Investigation and Immersion",
+    "Capstone Project",
   ],
 };
 
@@ -190,6 +201,27 @@ function normalize(value: unknown) {
   return String(value ?? "")
     .toLowerCase()
     .trim();
+}
+
+// Normalize only spelling/spacing/punctuation differences. Never guess a
+// different SF9 subject (e.g. PE and Health must specify 3 or 4).
+function normalizeGrade12Sf9Subject(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\bp\s*\.?\s*e\.?\b/g, "pe")
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function canonicalGrade12Sf9Subject(value: string): string | null {
+  const key = normalizeGrade12Sf9Subject(value);
+  if (!key) return null;
+  return SUBJECTS_BY_GRADE["Grade 12"].find(
+    (candidate) => normalizeGrade12Sf9Subject(candidate) === key,
+  ) ?? null;
 }
 
 function normalizeLearnerPart(value: unknown) {
@@ -1891,9 +1923,15 @@ function ClassDetail() {
     const nextGradeLevel = patch.grade_level ?? klass.grade_level ?? "";
     const availableSubjects = SUBJECTS_BY_GRADE[nextGradeLevel] ?? [];
     const currentSubject = patch.subject ?? klass.subject ?? "";
-    const nextSubject = availableSubjects.includes(currentSubject)
-      ? currentSubject
-      : (availableSubjects[0] ?? "");
+    // Do not silently overwrite a Grade 12 teacher's typed subject when
+    // editing unrelated accepted-class fields (school, dates, section, etc.).
+    const nextSubject = nextGradeLevel === "Grade 12"
+      ? patch.subject != null
+        ? (canonicalGrade12Sf9Subject(currentSubject) ?? currentSubject.trim())
+        : currentSubject
+      : availableSubjects.includes(currentSubject)
+        ? currentSubject
+        : (availableSubjects[0] ?? "");
 
     updateAcceptedSubjectClass.mutate({
       schoolName: patch.school_name ?? klass.school_name ?? "",
@@ -1911,16 +1949,47 @@ function ClassDetail() {
   };
 
   const requestSubjectChange = (nextSubject: string) => {
-    if (nextSubject === (klass.subject ?? "")) return;
-    setPendingSubject(nextSubject);
+    const trimmed = nextSubject.trim();
+    const mapped = klass.grade_level === "Grade 12"
+      ? canonicalGrade12Sf9Subject(trimmed)
+      : trimmed;
+    if (!mapped) {
+      toast.error("Enter one of the 16 Grade 12 subjects shown in the SF9 template.");
+      return;
+    }
+    if (mapped === (klass.subject ?? "").trim()) return;
+    setPendingSubject(mapped);
   };
 
   const cancelSubjectChange = () => {
     setPendingSubject(null);
   };
 
-  const confirmSubjectChange = () => {
+  const confirmSubjectChange = async () => {
     if (!pendingSubject) return;
+
+    // Grade 12 keeps a free-text Subject input. Check the canonical value
+    // against the matching SQL migration before saving a changed subject.
+    if (klass.grade_level === "Grade 12") {
+      try {
+        const { data: serverMatch, error: lookupError } = await (supabase as any)
+          .rpc("grade12_sf9_subject_match", { p_subject: pendingSubject });
+        if (lookupError) throw lookupError;
+        const verified = Array.isArray(serverMatch) ? serverMatch[0] : serverMatch;
+        if (verified?.canonical_subject !== pendingSubject) {
+          toast.error("The typed Grade 12 subject does not match the SQL/SF9 mapping.");
+          return;
+        }
+      } catch (error) {
+        toast.error(
+          `Unable to verify the subject. Apply the supplied Grade 12 SQL migration first. ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        return;
+      }
+    }
+
     saveAssignedClassDetails({ subject: pendingSubject });
     setPendingSubject(null);
   };
@@ -2200,26 +2269,35 @@ function ClassDetail() {
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               Subject
             </div>
-            <Select
-              value={klass.subject ?? undefined}
-              onValueChange={requestSubjectChange}
-              disabled={!klass.grade_level || subjectChangePending}
-            >
-              <SelectTrigger className="h-9">
-                <SelectValue
-                  placeholder={
-                    klass.grade_level ? "-- Select Subject --" : "-- Select Grade First --"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {(SUBJECTS_BY_GRADE[klass.grade_level] ?? []).map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {klass.grade_level === "Grade 12" ? (
+              <Grade12SubjectInput
+                value={klass.subject ?? ""}
+                pendingSubject={pendingSubject}
+                disabled={subjectChangePending}
+                onRequestChange={requestSubjectChange}
+              />
+            ) : (
+              <Select
+                value={klass.subject ?? undefined}
+                onValueChange={requestSubjectChange}
+                disabled={!klass.grade_level || subjectChangePending}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue
+                    placeholder={
+                      klass.grade_level ? "-- Select Subject --" : "-- Select Grade First --"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {(SUBJECTS_BY_GRADE[klass.grade_level] ?? []).map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
 
             {/* Senior High School only: Grade 11 requires 2/3/6 Units,
                 while Grade 12 permits 3 Units or no units (SQL NULL). */}
@@ -2691,6 +2769,68 @@ function TrackShsField({ value, onSave }: { value: string; onSave: (value: strin
         className="h-9"
       />
     </div>
+  );
+}
+
+function Grade12SubjectInput({
+  value,
+  pendingSubject,
+  disabled,
+  onRequestChange,
+}: {
+  value: string;
+  pendingSubject: string | null;
+  disabled: boolean;
+  onRequestChange: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  // Canceling the existing Subject Change dialog restores the saved subject.
+  useEffect(() => setDraft(value), [value, pendingSubject]);
+
+  const commit = () => {
+    const next = draft.trim();
+    if (!next || normalizeGrade12Sf9Subject(next) === normalizeGrade12Sf9Subject(value)) {
+      setDraft(value);
+      return;
+    }
+    const canonical = canonicalGrade12Sf9Subject(next);
+    if (!canonical) {
+      toast.error("Type a subject matching one of the 16 names on the Grade 12 SF9 form.");
+      return;
+    }
+    setDraft(canonical);
+    onRequestChange(canonical);
+  };
+
+  return (
+    <>
+      <Input
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") {
+            setDraft(value);
+            event.currentTarget.blur();
+          }
+        }}
+        disabled={disabled}
+        placeholder="Type a Grade 12 SF9 subject"
+        autoComplete="off"
+        aria-label="Grade 12 subject (matches SF9)"
+        className="h-9"
+      />
+      <p className={`mt-1 text-[10px] ${
+        draft.trim() && !canonicalGrade12Sf9Subject(draft)
+          ? "text-amber-700"
+          : "text-muted-foreground"
+      }`}>
+        {draft.trim() && !canonicalGrade12Sf9Subject(draft)
+          ? "This name does not match a Grade 12 SF9 row. Type an exact subject name."
+          : "Only Grade 12: this subject name is used in the E-Class Record and SF9 Excel export."}
+      </p>
+    </>
   );
 }
 
@@ -4551,25 +4691,20 @@ const TERM_TABS = [
 type Grade12SingleTerm = "1" | "2" | "3";
 
 function normalizeGrade12Subject(value: string | null | undefined) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/&/g, "and")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return normalizeGrade12Sf9Subject(value);
 }
 
-// Grade 12 SF9 one-term subject mapping.
+// Grade 12 SF9 one-term subject mapping for the teacher-TYPED subject.
 // Gray cells in the Grade 12 SF9 template are unavailable terms.
 // Only the one non-gray term is exposed in the E-Class Record,
 // together with Final Grade.
 //
-// PE and Health 3 / PE and Health 4 are intentionally excluded so
-// their current E-Class Record UI remains unchanged.
+// All 16 subjects, including PE and Health 3/4, use their one non-gray
+// term in the supplied SF9 template; all other grades are unchanged.
 const GRADE12_SINGLE_TERM_SUBJECTS: Record<string, Grade12SingleTerm> = {
   // 1st Term
   "media and information literacy": "1",
+  "pe and health 3": "1",
   "filipino sa piling larang": "1",
   "practical research 2": "1",
   "general biology 1": "1",
@@ -4584,6 +4719,7 @@ const GRADE12_SINGLE_TERM_SUBJECTS: Record<string, Grade12SingleTerm> = {
 
   // 3rd Term
   "contemporary philippine arts": "3",
+  "pe and health 4": "3",
   "general biology 2": "3",
   "inquiries investigation and immersion": "3",
   "capstone project": "3",
@@ -4682,6 +4818,12 @@ function GradesPanel({
     setExporting(true);
 
     try {
+      if (String(klass.grade_level ?? "").trim().toLowerCase() === "grade 12" &&
+          !canonicalGrade12Sf9Subject(subject)) {
+        throw new Error(
+          "This Grade 12 subject is not one of the 16 subjects in the SF9 template. Update the Subject field before exporting.",
+        );
+      }
       if (hideTermSelector) {
         const truncated = await exportMapehClassRecord({
           classId,
@@ -4857,6 +4999,28 @@ function GradesPanel({
         setCellValue("SUMMARY OF GRADES", `B${index + 64}`, femaleName);
       }
 
+      if (String(klass.grade_level ?? "").trim().toLowerCase() === "grade 12") {
+        const gradeSection = [klass.grade_level, klass.section].filter(Boolean).join(" - ");
+        for (const sheetName of ["TERM1", "TERM2", "TERM3"]) {
+          setCellValue(sheetName, "G4", klass.region);
+          setCellValue(sheetName, "L4", klass.division);
+          setCellValue(sheetName, "G5", klass.school_name);
+          setCellValue(sheetName, "S5", klass.school_id);
+          setCellValue(sheetName, "AB5", klass.school_year);
+          setCellValue(sheetName, "J7", gradeSection);
+          setCellValue(sheetName, "Q7", klass.teacher_name);
+          setCellValue(sheetName, "Z7", subject);
+        }
+        setCellValue("SUMMARY OF GRADES", "G5", klass.region);
+        setCellValue("SUMMARY OF GRADES", "O5", klass.division);
+        setCellValue("SUMMARY OF GRADES", "G6", klass.school_name);
+        setCellValue("SUMMARY OF GRADES", "W6", klass.school_id);
+        setCellValue("SUMMARY OF GRADES", "K8", gradeSection);
+        setCellValue("SUMMARY OF GRADES", "W8", klass.school_year);
+        setCellValue("SUMMARY OF GRADES", "K9", klass.teacher_name);
+        setCellValue("SUMMARY OF GRADES", "W9", subject);
+      }
+
       const scoreMap = new Map<string, number | null>();
       allScores.forEach((score) =>
         scoreMap.set(`${score.activity_id}|${score.student_id}`, score.score),
@@ -4868,9 +5032,12 @@ function GradesPanel({
       const isJuniorHighExcelExport = /^(?:grade\s*)?(?:7|8|9|10)$/i.test(
         String(klass.grade_level ?? "").trim(),
       );
+      const grade12AssignedTerm = getGrade12SingleTerm(klass.grade_level, subject);
+      const isMappedGrade12ExcelExport = grade12AssignedTerm !== null;
       const savedJhsBaseMap = new Map<string, number>();
+      const savedGrade12BaseMap = new Map<string, number>();
 
-      if (isJuniorHighExcelExport) {
+      if (isJuniorHighExcelExport || isMappedGrade12ExcelExport) {
         const { data: savedGrades, error: savedGradesError } = await (supabase as any)
           .from("grades")
           .select("student_id, term, term_grade_base")
@@ -4887,7 +5054,10 @@ function GradesPanel({
           if (row.term_grade_base == null) return;
           const savedBase = Number(row.term_grade_base);
           if (Number.isFinite(savedBase)) {
-            savedJhsBaseMap.set(`${row.student_id}|${row.term}`, savedBase);
+            const targetMap = isJuniorHighExcelExport
+              ? savedJhsBaseMap
+              : savedGrade12BaseMap;
+            targetMap.set(`${row.student_id}|${row.term}`, savedBase);
           }
         });
       }
@@ -4937,6 +5107,46 @@ function GradesPanel({
         );
       };
 
+      // Grade 12 Excel uses the same weighted-score rounding and editable
+      // Term Grade Base as TermGradesTable in the browser. This is a snapshot
+      // of the current assigned term, not an offline recalculation formula.
+      const grade12SystemTermGrade = (studentId: string): number | null => {
+        if (!grade12AssignedTerm) return null;
+        const weightedParts = (["WW", "PT", "QA"] as const).map((component) => {
+          const matchingActivities = allActivities
+            .filter((activity) =>
+              activity.term === grade12AssignedTerm && activity.component === component,
+            )
+            .sort((a, b) => a.position - b.position)
+            .slice(0, component === "QA" ? 3 : undefined);
+          let raw = 0;
+          let hps = 0;
+          let hasScore = false;
+          matchingActivities.forEach((activity) => {
+            const stored = scoreMap.get(`${activity.id}|${studentId}`);
+            if (typeof stored !== "number") return;
+            const max = Math.max(0, Number(activity.hps) || 0);
+            raw += Math.max(0, Math.min(max, stored));
+            hps += max;
+            hasScore = true;
+          });
+          if (!hasScore || hps <= 0) return null;
+          const percentage = Math.round((raw / hps) * 10000) / 100;
+          const weight = allComponents.find((entry) =>
+            entry.term === grade12AssignedTerm && entry.component === component,
+          )?.weight ?? (component === "WW" ? 20 : component === "PT" ? 50 : 30);
+          return Math.round(percentage * (weight / 100) * 100) / 100;
+        });
+        if (weightedParts.some((value) => value == null)) return null;
+        const initial = Math.round(
+          (weightedParts as number[]).reduce((sum, value) => sum + value, 0) * 100,
+        ) / 100;
+        return resolveTermGradeBase(
+          roundInitialGrade(initial),
+          savedGrade12BaseMap.get(`${studentId}|${grade12AssignedTerm}`),
+        );
+      };
+
       const componentColumns: Record<"WW" | "PT" | "QA", { columns: string[]; limit: number }> = {
         WW: { columns: ["F", "G", "H", "I", "J"], limit: 5 },
         PT: { columns: ["N", "O", "P"], limit: 3 },
@@ -4973,8 +5183,19 @@ function GradesPanel({
           for (let index = femaleStudents.length; index < 50; index += 1) {
             setCellValue(sheetName, `AC${index + 63}`, "");
           }
+        } else if (isMappedGrade12ExcelExport) {
+          for (let index = 0; index < 50; index += 1) {
+            const maleGrade = termValue === grade12AssignedTerm && maleStudents[index]
+              ? grade12SystemTermGrade(maleStudents[index].id)
+              : null;
+            const femaleGrade = termValue === grade12AssignedTerm && femaleStudents[index]
+              ? grade12SystemTermGrade(femaleStudents[index].id)
+              : null;
+            setCellValue(sheetName, `AC${index + 12}`, maleGrade);
+            setCellValue(sheetName, `AC${index + 63}`, femaleGrade);
+          }
         } else {
-          // SHS and any other grade levels retain the existing template rule.
+          // Other SHS and non-JHS classes retain their existing Excel formulas.
           [
             ...Array.from({ length: 50 }, (_, index) => index + 12),
             ...Array.from({ length: 50 }, (_, index) => index + 63),
@@ -4990,7 +5211,11 @@ function GradesPanel({
         (["WW", "PT", "QA"] as const).forEach((component) => {
           const config = componentColumns[component];
           const termActivities = allActivities
-            .filter((activity) => activity.term === termValue && activity.component === component)
+            .filter((activity) =>
+              activity.term === termValue &&
+              activity.component === component &&
+              (!isMappedGrade12ExcelExport || termValue === grade12AssignedTerm),
+            )
             .sort((a, b) => a.position - b.position)
             .slice(0, config.limit);
 
@@ -5116,6 +5341,39 @@ function GradesPanel({
         );
       }
 
+      if (isMappedGrade12ExcelExport && grade12AssignedTerm) {
+        const assignedIndex = Number(grade12AssignedTerm) - 1;
+        const summaryColumns = ["F", "J", "N"] as const;
+        const writeGrade12SummaryRow = (
+          student: StudentRow | undefined,
+          summaryRow: number,
+        ) => {
+          const grade = student ? grade12SystemTermGrade(student.id) : null;
+          summaryColumns.forEach((column, termIndex) => {
+            setCellValue(
+              "SUMMARY OF GRADES",
+              `${column}${summaryRow}`,
+              termIndex === assignedIndex ? grade : null,
+            );
+          });
+          // Every Grade 12 SF9 subject has one assigned term. Its final
+          // class-record grade equals that term, not an average of blank terms.
+          setCellValue("SUMMARY OF GRADES", `R${summaryRow}`, grade);
+          setCellValue(
+            "SUMMARY OF GRADES", `V${summaryRow}`,
+            grade == null ? "" : descriptorFor(grade).label,
+          );
+          setCellValue(
+            "SUMMARY OF GRADES", `Z${summaryRow}`,
+            grade == null ? "" : grade >= 75 ? "PASSED" : "FAILED",
+          );
+        };
+        for (let index = 0; index < 50; index += 1) {
+          writeGrade12SummaryRow(maleStudents[index], index + 13);
+          writeGrade12SummaryRow(femaleStudents[index], index + 64);
+        }
+      }
+
       for (const sheetName of requiredSheets) {
         const values = pendingValues.get(sheetName) ?? new Map();
         const formulas = pendingFormulas.get(sheetName) ?? new Map();
@@ -5185,7 +5443,13 @@ function GradesPanel({
             isJuniorHighExcelExport &&
             (sheetName === "TERM1" || sheetName === "TERM2" || sheetName === "TERM3") &&
             /^AC\d+$/.test(address);
-          if (formulaNode && !replaceJhsTermGradeFormula) {
+          const replaceGrade12SnapshotFormula =
+            isMappedGrade12ExcelExport &&
+            (((sheetName === "TERM1" || sheetName === "TERM2" || sheetName === "TERM3") &&
+              /^AC\d+$/.test(address)) ||
+              (sheetName === "SUMMARY OF GRADES" &&
+                /^(?:F|J|N|R|V|Z)\d+$/.test(address)));
+          if (formulaNode && !replaceJhsTermGradeFormula && !replaceGrade12SnapshotFormula) {
             Array.from(cell.childNodes)
               .filter((child) => child.nodeName === "v")
               .forEach((child) => cell.removeChild(child));
@@ -5239,7 +5503,7 @@ function GradesPanel({
         zip.file(sheetPath, serializer.serializeToString(sheetXml));
       }
 
-      if (isJuniorHighExcelExport) {
+      if (isJuniorHighExcelExport || isMappedGrade12ExcelExport) {
         zip.remove("xl/calcChain.xml");
         Array.from(relationshipsXml.getElementsByTagName("Relationship"))
           .filter((relationship) => {
@@ -5261,6 +5525,21 @@ function GradesPanel({
             .forEach((entry) => entry.parentNode?.removeChild(entry));
           zip.file("[Content_Types].xml", serializer.serializeToString(contentTypesXml));
         }
+      }
+
+      if (isMappedGrade12ExcelExport && grade12AssignedTerm) {
+        // Display only the subject's official non-gray term and its summary.
+        // Keep other sheets in the workbook intact and hidden, not deleted.
+        Array.from(workbookXml.getElementsByTagName("sheet")).forEach((sheet) => {
+          const name = sheet.getAttribute("name");
+          if (name === "TERM1" || name === "TERM2" || name === "TERM3") {
+            if (name === `TERM${grade12AssignedTerm}`) {
+              sheet.removeAttribute("state");
+            } else {
+              sheet.setAttribute("state", "hidden");
+            }
+          }
+        });
       }
 
       const calculationProperties = workbookXml.getElementsByTagName("calcPr")[0];
@@ -7144,6 +7423,43 @@ function FinalGradesTable({
   scores.forEach((s) => sMap.set(`${s.activity_id}|${s.student_id}`, s.score));
 
   const termGrade = (sid: string, term: string) => {
+    // Grade 12: its SF9 subject belongs to one assigned term. Calculate its
+    // final using the EXACT non-MAPEH TermGradesTable rounding sequence,
+    // including the teacher-edited term_grade_base. This also matches the
+    // exported Grade 12 E-Class Record snapshot; do not change other grades.
+    if (isSingleTermGrade12Subject && term === grade12SingleTerm) {
+      const gradeParts = (["WW", "PT", "QA"] as const).map((component) => {
+        const termActivities = activities
+          .filter((activity) => activity.term === term && activity.component === component)
+          .sort((a, b) => a.position - b.position)
+          .slice(0, component === "QA" ? 3 : undefined);
+        let raw = 0;
+        let hps = 0;
+        let hasScore = false;
+        termActivities.forEach((activity) => {
+          const value = sMap.get(`${activity.id}|${sid}`);
+          if (typeof value !== "number") return;
+          raw += value;
+          hps += activity.hps;
+          hasScore = true;
+        });
+        if (!hasScore || hps <= 0) return null;
+        const percentageScore = Math.round((raw / hps) * 10000) / 100;
+        const weight = components.find(
+          (entry) => entry.term === term && entry.component === component,
+        )?.weight ?? (component === "WW" ? 20 : component === "PT" ? 50 : 30);
+        return Math.round(percentageScore * (weight / 100) * 100) / 100;
+      });
+      if (gradeParts.some((value) => value == null)) return null;
+      const initial = Math.round(
+        (gradeParts as number[]).reduce((sum, value) => sum + value, 0) * 100,
+      ) / 100;
+      return resolveTermGradeBase(
+        roundInitialGrade(initial),
+        savedTermGradeBaseMap.get(`${sid}|${term}`),
+      );
+    }
+
     const results = (["WW", "PT", "QA"] as const).map((c) => {
       const acts = activities
         .filter((a) => a.term === term && a.component === c)

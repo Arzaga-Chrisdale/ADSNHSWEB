@@ -172,10 +172,22 @@ function normalizeSubjectName(value: unknown) {
 
 function normalizeSf9SubjectKey(value: unknown) {
   return normalizeSubjectName(value)
+    .replace(/\bp\s*\.?\s*e\.?\b/g, "pe")
     .replace(/&/g, "and")
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// The Grade 12 Subject is a plain typed Input (no select and no datalist).
+// Resolve spelling/punctuation to one of the original workbook's 16 fixed
+// rows. No row is guessed for an unknown saved subject or imported grade.
+function matchGrade12Sf9Subject(value: unknown) {
+  const key = normalizeSf9SubjectKey(value);
+  if (!key) return null;
+  return SF9_GRADE12_SUBJECTS.find(
+    (subject) => normalizeSf9SubjectKey(subject.label) === key,
+  ) ?? null;
 }
 
 function isSf9CommunicationCompositeSubject(value: unknown) {
@@ -2867,7 +2879,8 @@ function makeSF9Component(variant: Variant) {
     ): number | null => {
       const matchingStudentIds =
         grade12StudentIdsByLearnerId.get(learnerId) ?? [learnerId];
-      const targetSubject = normalizeSf9SubjectKey(subject);
+      const targetSubject = matchGrade12Sf9Subject(subject);
+      if (!targetSubject) return null;
 
       const scores = grade12Grades
         .filter((grade) => {
@@ -2877,11 +2890,14 @@ function makeSF9Component(variant: Variant) {
           const gradeClass = grade12ClassById.get(
             String((grade as any).class_id || ""),
           );
+          // Grade Requests are imported into the adviser's class under the
+          // submitted subject (which can differ from that class's own subject).
+          // Always prefer the saved grade subject; use the class label only
+          // for older rows without a subject. This preserves imports.
           const rowSubject =
             String(grade.subject || "").trim() ||
             String(gradeClass?.subject || "").trim();
-
-          return normalizeSf9SubjectKey(rowSubject) === targetSubject;
+          return matchGrade12Sf9Subject(rowSubject)?.label === targetSubject.label;
         })
         .map((grade) => grade.score)
         .filter((score): score is number => typeof score === "number");
@@ -2889,8 +2905,9 @@ function makeSF9Component(variant: Variant) {
       return scores.length ? computeAverage(scores) : null;
     };
 
-    // Grade 12 SF9 keeps the official Units column in the template,
-    // but the system no longer assigns or displays units for Grade 12.
+    // Match typed Grade 12 class subjects to these exact template rows.
+    // Retain the previously requested Grade 12 SF9 Units behavior: the
+    // optional class Units selector does not auto-fill the official SF9 column.
     const buildGrade12RowsForLearner = (
       learnerId: string,
     ): Sf9Grade12PreviewRow[] =>
@@ -2936,6 +2953,18 @@ function makeSF9Component(variant: Variant) {
           normalizeSubjectName(exportClass?.grade_level) === "grade 11";
         const isGrade12Shs =
           normalizeSubjectName(exportClass?.grade_level) === "grade 12";
+
+        if (isGrade12Shs) {
+          const unmatched = matchingGrade12Classes
+            .filter((candidate) => !matchGrade12Sf9Subject(candidate.subject))
+            .map((candidate) => candidate.subject)
+            .filter(Boolean);
+          if (unmatched.length) {
+            toast.warning(
+              `The following Grade 12 subjects do not match the SF9 template and will not be included: ${unmatched.join(", ")}`,
+            );
+          }
+        }
 
         const excelTemplateUrl = isGrade11Shs
           ? SF9_GRADE11_EXCEL_TEMPLATE_URL
