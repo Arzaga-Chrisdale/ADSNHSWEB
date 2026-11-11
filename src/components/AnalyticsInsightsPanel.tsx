@@ -608,7 +608,6 @@ export function AnalyticsInsightsPanel({
   const selectedDistribution = distributionForTerm(selectedTerm);
 
   const term2Distribution = distributionForTerm("2");
-
   const naiveBayesTrainingRows: NaiveBayesTrainingRow[] = allowComponentForecast
     ? students.flatMap((student) => {
       const features = featuresForAnalyticsTerm(student.id, "1");
