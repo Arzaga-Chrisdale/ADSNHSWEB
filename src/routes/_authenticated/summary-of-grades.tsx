@@ -2254,7 +2254,7 @@ function SOGPage() {
     normalizeText(activeAnalyticsSubject) === normalizeText(klass?.subject);
 
   // Other subjects on this class's SOG may be imported final grades only.
-  // Do not use the current class's component scores to forecast another subject.
+  // Do not use the current class's component scores to Learner Proficiency Prediction another subject.
   const analyticsCanUseOwnComponents =
     analyticsIsOwnSubject &&
     !isCommunicationClass &&
@@ -4343,7 +4343,7 @@ function SOGPage() {
                       {activeAnalyticsSubject || "—"}
                     </p>
                     <p className="mt-0.5 hidden text-[10px] text-emerald-700 sm:block">
-                      Term 1 + Term 2 → Gaussian Naive Bayes → Term 3 proficiency forecast
+                      Term 1 + Term 2 → Gaussian Naive Bayes → Term 3 Learner Proficiency Prediction
                     </p>
                   </div>
                 </div>

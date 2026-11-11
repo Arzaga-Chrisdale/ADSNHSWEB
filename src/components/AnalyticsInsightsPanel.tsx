@@ -172,7 +172,7 @@ export function AnalyticsInsightsPanel({
   forecastData?: unknown;
   /**
    * Admin mode reuses the exact same grade/proficiency calculations and the
-   * same Naive Bayes Term 3 forecast while keeping the view read-only.
+   * same Naive Bayes Term 3 Learner Proficiency Prediction while keeping the view read-only.
    */
   adminView?: boolean;
   classLabel?: string;
@@ -608,6 +608,7 @@ export function AnalyticsInsightsPanel({
   const selectedDistribution = distributionForTerm(selectedTerm);
 
   const term2Distribution = distributionForTerm("2");
+
   const naiveBayesTrainingRows: NaiveBayesTrainingRow[] = allowComponentForecast
     ? students.flatMap((student) => {
       const features = featuresForAnalyticsTerm(student.id, "1");
@@ -911,7 +912,7 @@ export function AnalyticsInsightsPanel({
           </div>
 
           {/* Full-width analytics panels.
-              Term analytics stay cumulative by the selected tab. The forecast
+              Term analytics stay cumulative by the selected tab. The Learner Proficiency Prediction
               flow itself is fixed: T1 features -> T2 proficiency label ->
               Gaussian Naive Bayes -> T2 features -> predicted T3 category. */}
           <div className="mt-5 space-y-4">
@@ -924,50 +925,67 @@ export function AnalyticsInsightsPanel({
               />
             </div>
 
-            <div className="w-full">
-              <NaiveBayesForecastPanel
-                forecastData={naiveBayesForecast}
-                actualTerm2Distribution={term2Distribution.distribution}
-                trainingRowCount={naiveBayesTrainingRows.length}
-                predictionInputCount={naiveBayesPredictionInputs.length}
-                totalStudents={students.length}
-                unavailableReason={
-                  allowComponentForecast
-                    ? undefined
-                    : "Only this subject's actual Summary grades are displayed. Its own comparable Term 1 and Term 2 WW, PT and STE inputs are not available for forecasting in this view. Another subject's scores are never used."
-                }
-              />
-            </div>
+            {selectedTerm === "3" && (
+              <div className="w-full">
+                <NaiveBayesForecastPanel
+                  forecastData={naiveBayesForecast}
+                  actualTerm2Distribution={term2Distribution.distribution}
+                  trainingRowCount={naiveBayesTrainingRows.length}
+                  predictionInputCount={naiveBayesPredictionInputs.length}
+                  totalStudents={students.length}
+                  unavailableReason={
+                    allowComponentForecast
+                      ? undefined
+                      : "Only this subject's actual Summary grades are displayed. Its own comparable Term 1 and Term 2 WW, PT and STE inputs are not available for Learner Proficiency Prediction in this view. Another subject's scores are never used."
+                  }
+                />
+              </div>
+            )}
           </div>
 
-          <div className="mt-4 grid gap-3 xl:grid-cols-2">
-            <div className="rounded-xl border border-sky-200 bg-sky-50/70 px-4 py-3 text-xs text-sky-950">
-              <div className="font-bold text-sky-900">How to Read This</div>
-              <div className="mt-1 leading-relaxed">
-                The model learns from each learner&apos;s Term 1 WW, PT, STE,
-                and Final Grade together with the learner&apos;s actual Term 2
-                proficiency category. It then applies that trained relationship
-                to Term 2 features to forecast the Term 3 category.
-              </div>
-            </div>
+          {selectedTerm === "3" && (
+            <div className="mt-4 grid gap-3 xl:grid-cols-2">
+              <div className="rounded-xl border border-sky-200 bg-sky-50/70 px-4 py-3 text-xs text-sky-950">
+                <div className="font-bold text-sky-900">
+                  How to Read This
+                </div>
 
-            <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-xs text-amber-950">
-              <div className="font-bold text-amber-900">Model Note</div>
-              <div className="mt-1 leading-relaxed">
-                {!allowComponentForecast ? (
-                  <>This view displays this subject&apos;s actual Summary grades only.
-                  Term 3 prediction requires comparable WW, PT, and STE data
-                  for the same subject across Term 1 and Term 2.</>
-                ) : (
-                  <>A forecast is shown only when at least{" "}
-                {MIN_NAIVE_BAYES_TRAINING_ROWS} learners have complete Term 1
-                features and Term 2 labels. Full validation uses 5-fold
-                cross-validation. Missing E-Class Record inputs are never
-                replaced with invented values.</>
-                )}
+                <div className="mt-1 leading-relaxed">
+                  The model learns from each learner&apos;s Term 1 WW, PT,
+                  STE, and Final Grade together with the learner&apos;s
+                  actual Term 2 proficiency category. It then applies that
+                  trained relationship to Term 2 features to predict the
+                  Term 3 proficiency category.
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-xs text-amber-950">
+                <div className="font-bold text-amber-900">
+                  Model Note
+                </div>
+
+                <div className="mt-1 leading-relaxed">
+                  {!allowComponentForecast ? (
+                    <>
+                      This view displays this subject&apos;s actual Summary
+                      grades only. Term 3 prediction requires comparable WW,
+                      PT, and STE data for the same subject across Term 1 and
+                      Term 2.
+                    </>
+                  ) : (
+                    <>
+                      A Learner Proficiency Prediction is shown only when at
+                      least{" "}
+                      {MIN_NAIVE_BAYES_TRAINING_ROWS} learners have complete
+                      Term 1 features and Term 2 labels. Full validation uses
+                      5-fold cross-validation. Missing E-Class Record inputs
+                      are never replaced with invented values.
+                    </>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
@@ -1162,7 +1180,7 @@ function NaiveBayesForecastPanel({
           </div>
           <div className="min-w-0">
             <h4 className="font-bold text-violet-950">
-              Gaussian Naive Bayes · Term 3 Proficiency Forecast
+              Gaussian Naïve Bayes · Learner Proficiency Prediction
             </h4>
             <p className="mt-0.5 text-xs text-muted-foreground">
               Trains on Term 1 WW, PT, STE and Final Grade → actual Term 2
@@ -1173,7 +1191,7 @@ function NaiveBayesForecastPanel({
         </div>
 
         <span className="rounded-full border border-violet-200 bg-white/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700">
-          Term 3 Forecast
+          Term 3 Learner Proficiency Prediction
         </span>
       </div>
 
@@ -1237,7 +1255,7 @@ function NaiveBayesForecastPanel({
       {!forecastData ? (
         <div className="mx-4 mb-4 rounded-xl border border-dashed border-violet-200 bg-white/80 px-5 py-8 text-center">
           <div className="text-sm font-bold text-violet-950">
-            Term 3 forecast is not ready yet
+            Term 3 Learner Proficiency Prediction is not ready yet
           </div>
           <div className="mx-auto mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
             {unavailableReason || (
@@ -1409,7 +1427,7 @@ function ForecastDistributionCard({
         Section-Level Output
       </div>
       <div className="mt-0.5 text-[10px] text-muted-foreground">
-        Actual Term 2 versus forecasted Term 3 proficiency distribution.
+        Actual Term 2 versus Learner Proficiency Prediction Term 3 proficiency distribution.
       </div>
 
       <div className="mt-4 space-y-3">
@@ -1457,7 +1475,7 @@ function ForecastDistributionCard({
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2 w-4 rounded bg-violet-500" />
-          Term 3 Forecast
+          Term 3 Learner Proficiency Prediction
         </span>
       </div>
     </div>

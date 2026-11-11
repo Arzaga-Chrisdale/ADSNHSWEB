@@ -1396,10 +1396,10 @@ function AdminAnalyticsInsights() {
                   <p className="mt-1 max-w-sm text-xs leading-5 text-[var(--admin-text-muted)]">
                     Choose any class from the list to view its term analytics,
                     proficiency distribution, learner-level Naive Bayes predictions,
-                    and Term 3 section forecast.
-                  </p>
-                </div>
-              </div>
+                    and Term 3 Learner Proficiency Prediction.
+                    </p>
+                  </div>
+                  </div>
             ) : studentsError ? (
               <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
                 {studentsError instanceof Error
