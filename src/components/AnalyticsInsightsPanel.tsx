@@ -755,7 +755,7 @@ export function AnalyticsInsightsPanel({
         <div className="flex flex-col gap-2 rounded-2xl border border-emerald-200 bg-emerald-50/55 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <div className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-              Admin read-only analytics
+              Admin read-only proficiency predictions
             </div>
             <div className="mt-0.5 truncate text-sm font-bold text-emerald-950">
               {classLabel || "Selected Class"}
@@ -778,7 +778,7 @@ export function AnalyticsInsightsPanel({
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
             <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-600 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm">
               <BookOpen className="size-4" />
-              {adminView ? "Admin Analytics" : "Grades Hub"}
+              {adminView ? "Admin Proficiency Predictions" : "Grades Hub"}
             </div>
 
             {!adminView && subjectOptions.length > 1 && onSubjectChange && (
@@ -786,7 +786,7 @@ export function AnalyticsInsightsPanel({
                 <BookOpen className="size-4 text-[#8f3b34]" aria-hidden="true" />
                 Subject
                 <select
-                  aria-label="Select analytics subject"
+                  aria-label="Select proficiency prediction subject"
                   value={subject}
                   onChange={(event) => onSubjectChange(event.target.value)}
                   className="h-10 min-w-0 flex-1 rounded-xl border border-[#c88b84] bg-white px-3 text-xs font-semibold text-[#3f2c28] shadow-sm outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200 sm:w-[210px] sm:flex-none"
@@ -805,7 +805,7 @@ export function AnalyticsInsightsPanel({
                 <span className="font-medium text-emerald-700">Selected Subject: </span>
                 <span className="font-bold">{subject}</span>
                 <div className="mt-0.5 text-[10px] text-emerald-700">
-                  Analytics below are for this subject only.
+                  Proficiency predictions below are for this subject only.
                 </div>
               </div>
             )}

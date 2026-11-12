@@ -265,7 +265,7 @@ export function AdminAnalyticsInsights() {
               Learner Proficiency Prediction
             </h1>
             <p className="mt-1 max-w-3xl text-sm text-[var(--admin-text-muted)]">
-              View academic analytics across all classes created by Class
+              View learner proficiency predictions across all classes created by Class
               Advisers and Subject Teachers.
             </p>
           </div>
@@ -276,7 +276,7 @@ export function AdminAnalyticsInsights() {
           <div>
             <div className="text-sm font-bold">Admin Access: All Classes</div>
             <div className="mt-0.5 text-xs leading-5 text-emerald-700">
-              You can view analytics for all classes across all grade levels and
+              You can view proficiency predictions for all classes across all grade levels and
               sections.
             </div>
           </div>
@@ -513,10 +513,10 @@ export function AdminAnalyticsInsights() {
               </div>
               <div className="min-w-0">
                 <h2 className="font-bold text-[var(--admin-text-heading)]">
-                  Class Analytics Preview
+                  Class Proficiency Preview
                 </h2>
                 <p className="mt-0.5 text-xs text-[var(--admin-text-muted)]">
-                  Select a class and review the same analytics available to its
+                  Select a class and review the same proficiency predictions available to its
                   Class Adviser or Subject Teacher.
                 </p>
               </div>
@@ -543,8 +543,8 @@ export function AdminAnalyticsInsights() {
                     Select a class
                   </p>
                   <p className="mt-1 max-w-sm text-xs leading-5 text-[var(--admin-text-muted)]">
-                    Choose any class from the list to view its term analytics,
-                    proficiency distribution, and forecast panel.
+                    Choose any class from the list to view its term proficiency predictions,
+                    distribution, and forecast panel.
                   </p>
                 </div>
               </div>
@@ -583,7 +583,7 @@ export function AdminAnalyticsInsights() {
       <div className="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs leading-5 text-sky-800">
         <UserRound className="mt-0.5 size-4 shrink-0" />
         <span>
-          Admin Analytics is read-only. It reuses the existing class analytics
+          Admin Proficiency Predictions is read-only. It reuses the existing class proficiency
           calculations so the Admin sees the same actual grades, proficiency
           distribution, and model forecast output as the teacher.
         </span>
