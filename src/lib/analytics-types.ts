@@ -1,5 +1,5 @@
 // src/lib/analytics-types.ts
-// Shared types for SIGLA Analytics & Insights.
+// Shared types for SIGLA Learner Proficiency Prediction.
 //
 // The forecasting flow in this version is learner-level Gaussian Naive Bayes:
 // Term 1 features -> Term 2 proficiency label, then Term 2 features ->

@@ -57,7 +57,7 @@ export const PROFICIENCY_AXIS_ORDER: ProficiencyLevel[] = [
 ];
 
 /**
- * Stable colors shared by the Analytics & Insights forecast UI.
+ * Stable colors shared by the Learner Proficiency Prediction forecast UI.
  */
 export const PROFICIENCY_DOT_COLORS: Record<ProficiencyLevel, string> = {
   Advancing: "#16a34a",

@@ -248,7 +248,7 @@ export function AdminAnalyticsInsights() {
       <section className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
         {directoryError instanceof Error
           ? directoryError.message
-          : "Unable to load Admin Analytics & Insights."}
+          : "Unable to load Admin Learner Proficiency Prediction."}
       </section>
     );
   }
@@ -262,7 +262,7 @@ export function AdminAnalyticsInsights() {
           </div>
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-[var(--admin-text-heading)] sm:text-3xl">
-              Analytics &amp; Insights
+              Learner Proficiency Prediction
             </h1>
             <p className="mt-1 max-w-3xl text-sm text-[var(--admin-text-muted)]">
               View academic analytics across all classes created by Class

@@ -1392,7 +1392,7 @@ function SOGPage() {
   const canSendGradeRequests =
     teacherType === "subject_teacher" || teacherType === "class_adviser";
 
-  // Analytics & Insights is available to both supported teacher roles.
+  // Learner Proficiency Prediction is available to both supported teacher roles.
   const canOpenAnalytics =
     teacherType === "subject_teacher" || teacherType === "class_adviser";
 
@@ -4282,7 +4282,7 @@ function SOGPage() {
               aria-controls="summary-analytics-insights"
             >
               <BarChart3 className="mr-1 size-4" />
-              Analytics & Insights
+              Learner Proficiency Prediction
             </Button>
           )}
 
@@ -4312,7 +4312,7 @@ function SOGPage() {
         <>
           <button
             type="button"
-            aria-label="Close Analytics & Insights"
+            aria-label="Close Learner Proficiency Prediction"
             className="fixed inset-0 z-40 cursor-default bg-black/70 backdrop-blur-[1px]"
             onClick={() => setAnalyticsOpen(false)}
           />
@@ -4336,7 +4336,7 @@ function SOGPage() {
                       id="analytics-insights-title"
                       className="truncate text-base font-semibold text-[#33241f] sm:text-lg"
                     >
-                      Analytics & Insights
+                      Learner Proficiency Prediction
                     </h2>
                     <p className="truncate text-xs text-[#8a756b]">
                       {formatGradeLevel(klass.grade_level)} · {klass.section || "—"} ·{" "}
@@ -4353,7 +4353,7 @@ function SOGPage() {
                 type="button"
                 onClick={() => setAnalyticsOpen(false)}
                 className="grid size-9 shrink-0 place-items-center rounded-lg border border-[#e5d4c5] bg-white text-[#6f554a] shadow-sm transition hover:bg-[#f7eee6] hover:text-[#33241f]"
-                aria-label="Close Analytics & Insights"
+                aria-label="Close Learner Proficiency Prediction"
                 title="Close"
               >
                 <X className="size-4" />

@@ -724,7 +724,7 @@ const NAV_ITEMS: Array<{
     icon: ClipboardCheck,
   },
   { id: "forms", label: "School Forms", icon: Files },
-  { id: "analytics", label: "Analytics & Insights", icon: BarChart3 },
+  { id: "analytics", label: "Learner Proficiency Prediction", icon: BarChart3 },
 ];
 
 function normalize(value: unknown) {
@@ -733,8 +733,8 @@ function normalize(value: unknown) {
     .trim();
 }
 
-// Admin Analytics & Insights is defined locally in this file so admin.tsx
-// does not depend on a separate AdminAnalyticsInsights.tsx module.
+// Admin Learner Proficiency Prediction is defined locally in this file so admin.tsx
+// does not depend on a separate AdminLearnerProficiencyPrediction.tsx module.
 type AdminAnalyticsClass = {
   id: string;
   teacher_id: string;
@@ -1064,7 +1064,7 @@ function AdminAnalyticsInsights() {
       <section className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
         {directoryError instanceof Error
           ? directoryError.message
-          : "Unable to load Admin Analytics & Insights."}
+          : "Unable to load Admin Learner Proficiency Prediction."}
       </section>
     );
   }
@@ -1078,10 +1078,10 @@ function AdminAnalyticsInsights() {
           </div>
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-[var(--admin-text-heading)] sm:text-3xl">
-              Analytics &amp; Insights
+              Learner Proficiency Prediction
             </h1>
             <p className="mt-1 max-w-3xl text-sm text-[var(--admin-text-muted)]">
-              View academic analytics across all classes created by Class
+              View learner proficiency predictions across all classes created by Class
               Advisers and Subject Teachers.
             </p>
           </div>
